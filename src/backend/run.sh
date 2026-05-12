@@ -7,6 +7,7 @@ set -euo pipefail
 # docker-compose.yml starts Spring Boot, Redis 7, and MySQL 8.
 #
 # Usage:
+#   ./run.sh dev      Build and start Spring Boot, Redis, and MySQL in foreground (shows live logs).
 #   ./run.sh up       Build and start Spring Boot, Redis, and MySQL.
 #   ./run.sh app      Build and start only Spring Boot with dependencies.
 #   ./run.sh deps     Start only Redis and MySQL in the background.
@@ -61,6 +62,9 @@ export GRADLE_PROXY_HOST="${GRADLE_PROXY_HOST-127.0.0.1}"
 export GRADLE_PROXY_PORT="${GRADLE_PROXY_PORT-26797}"
 
 case "$command" in
+  dev)
+    docker compose up --build
+    ;;
   up)
     docker compose up -d --build
     ;;
