@@ -1,0 +1,74 @@
+services:
+  # ==========================================
+  # 统一入口与负载均衡网关 (Nginx)
+  # 这里的环境变量使用的是backend文件夹下的参数 使用run.sh或run.bat启动即可
+  # 如果想要单独运行前端或者后端 使用各个文件夹下的run脚本即可。
+  # ==========================================
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./src/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+  # ==========================================
+  # 前端服务 (React / Vite)
+  # ==========================================
+  frontend:
+    build:
+      context: ./src/frontend/app
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./src/frontend/app:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-pnpm-store:/pnpm/store
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    # 由于统一被 nginx 接管，宿主机不直接映射前端端口（避免冲突），通过 localhost:80 访问即可
+    # ports:
+    #   - "5173:5173"
+    command: sh -c "pnpm config set store-dir /pnpm/store && pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0"
+
+  # ==========================================
+  # 后端服务 (Spring Boot) - 展示分布式特性
+  # ==========================================
+  backend:
+    build:
+      context: ./src/backend/java
+      network: host
+      args:
+        # 使用宿主机的虚拟域名进行代理穿透构建
+        GRADLE_PROXY_HOST: ${GRADLE_PROXY_HOST:-host.docker.internal}
+        GRADLE_PROXY_PORT: ${GRADLE_PROXY_PORT:-7890}
+    depends_on:
+      - redis
+      - mysql
+    deploy:
+      replicas: 2 # 【分布式核心】启动2个后端实例，让Nginx进行负载均衡
+    # 宿主机上不要映射后端的端口，因为启动了2个实例会发生端口冲突。统由 Nginx 的 80 端口转发进入。
+
+  # ==========================================
+  # 基础设施
+  # ==========================================
+  redis:
+    image: redis:7
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cocanvas}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - cocanvas-mysql-data:/var/lib/mysql
+
+volumes:
+  cocanvas-mysql-data:
+  frontend-node-modules:
+  frontend-pnpm-store:
