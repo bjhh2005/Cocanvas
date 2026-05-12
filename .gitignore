@@ -1,5 +1,9 @@
 node_modules/
 build/
+.gradle/
+bin/
+out/
 .idea/
 .vscode/
 .env
+src/backend/.env
