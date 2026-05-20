@@ -1,0 +1,104 @@
+.hb {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+@media (prefers-color-scheme: dark) {
+  .hb { background: rgba(22, 23, 29, 0.7); }
+}
+
+.hb-left, .hb-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hb-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-h);
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.hb-icon-btn:hover { background: var(--code-bg); }
+
+.hb-room-label {
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.hb-room-id {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 4px 8px;
+  background: var(--code-bg);
+  border-radius: 6px;
+}
+
+.hb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.hb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.hb-dot-green  { background: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.2); }
+.hb-dot-amber  { background: #f59e0b; animation: pulse 1.4s infinite; }
+.hb-dot-red    { background: #ef4444; }
+.hb-dot-gray   { background: #9ca3af; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+.hb-peers {
+  display: flex;
+  gap: -6px;
+}
+.hb-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  border: 2px solid var(--bg);
+  margin-left: -6px;
+}
+.hb-avatar:first-child { margin-left: 0; }
+.hb-avatar-self {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -1,22 +1,15 @@
-import { useEffect, useState } from 'react'
-import { fetchHealth } from './network/api'
-import './App.css'
+import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
+import Home from './pages/Home'
+import Room from './pages/Room'
 
-function App() {
-  const [status, setStatus] = useState<string>('checking...')
-
-  useEffect(() => {
-    fetchHealth()
-      .then(data => setStatus(data.status))
-      .catch(err => setStatus('error: ' + err.message))
-  }, [])
-
+export default function App() {
   return (
-    <>
-      <h1>Cocanvas 首个联通测试</h1>
-      <p>Backend Status: <strong>{status}</strong></p>
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/room/:roomId" element={<Room />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
-
-export default App

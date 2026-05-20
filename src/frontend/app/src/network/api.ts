@@ -1,8 +1,25 @@
-export const fetchHealth = async () => {
-  // 通过 Nginx 代理请求，使用相对路径 /api/... ，解决跨域与端口封闭的问题
-  const response = await fetch('/api/health');
-  if (!response.ok) {
-    throw new Error('Network response was not ok');
-  }
-  return response.json();
-};
+// 所有 HTTP 走 /api 相对路径（Nginx 转发；Vite 直连模式由 vite.config 的 proxy 处理）
+
+export interface HealthResponse { status: string }
+
+export const fetchHealth = async (): Promise<HealthResponse> => {
+  const r = await fetch('/api/health')
+  if (!r.ok) throw new Error('Network response was not ok')
+  return r.json()
+}
+
+export interface CreateRoomResponse { roomId: string; wsUrl: string }
+
+export const createRoom = async (): Promise<CreateRoomResponse> => {
+  const r = await fetch('/api/rooms', { method: 'POST' })
+  if (!r.ok) throw new Error('Failed to create room')
+  return r.json()
+}
+
+export interface RoomInfoResponse { roomId: string; exists: boolean; wsUrl: string }
+
+export const fetchRoom = async (roomId: string): Promise<RoomInfoResponse> => {
+  const r = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`)
+  if (!r.ok) throw new Error('Room lookup failed')
+  return r.json()
+}

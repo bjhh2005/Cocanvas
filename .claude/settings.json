@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls -la)",
+      "Bash(xargs cat)",
+      "Bash(pkill -f \"gradle.*bootRun\")",
+      "Bash(pkill -f \"CocanvasBackendApplication\")",
+      "Bash(curl -sf http://localhost:8080/health)",
+      "Bash(curl -s -X POST http://localhost:8080/rooms)",
+      "Bash(curl -s http://localhost:8080/rooms/abc123)",
+      "Bash(curl -s -X POST http://localhost/api/rooms)",
+      "Bash(disown)",
+      "Bash(curl -s http://localhost:8080/rooms/test123)",
+      "Bash(./gradlew test *)"
+    ]
+  }
+}

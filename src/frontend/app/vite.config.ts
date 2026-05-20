@@ -10,9 +10,11 @@ export default defineConfig({
       '/api': {
         // 由于前端运行在 Docker 容器中，localhost 指向的是前端容器自己
         // 获取宿主机上的后端服务需要使用 host.docker.internal
-        target: process.env.VITE_PROXY_TARGET || 'http://host.docker.internal:8080' || 'http://localhost:8080',
+        // VITE_PROXY_TARGET 可在 .env 中覆盖；默认 host.docker.internal（容器内访问宿主机后端）
+        // Docker nginx 模式下此代理不生效，仅 Vite 直连（port 5173）时有效
+        target: process.env.VITE_PROXY_TARGET || 'http://host.docker.internal:8080',
         changeOrigin: true,
-        // Vite 代理跟 Nginx 保持一致的行为：将 /api 前缀去掉
+        // Vite 代理与 Nginx 保持一致：将 /api 前缀去掉再转发
         rewrite: (path) => path.replace(/^\/api/, '')
       }
     }

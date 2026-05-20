@@ -1,0 +1,47 @@
+.toolbar {
+  position: absolute;
+  top: 72px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+@media (prefers-color-scheme: dark) {
+  .toolbar { background: rgba(22, 23, 29, 0.7); }
+}
+
+.tb-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-h);
+  transition: background 0.1s, border-color 0.1s;
+  min-width: 52px;
+}
+.tb-btn:hover {
+  background: var(--code-bg);
+  border-color: var(--border);
+}
+.tb-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.tb-btn span {
+  font-size: 11px;
+  color: var(--text);
+}

@@ -1,0 +1,22 @@
+.room-page {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.room-workspace {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+.room-canvas-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(120, 120, 130, 0.18) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+

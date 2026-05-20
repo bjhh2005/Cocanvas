@@ -14,7 +14,15 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**")
-                        .allowedOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+                        // localhost:5173  → Vite 直连开发模式
+                        // localhost / localhost:80 → Docker nginx 模式
+                        .allowedOrigins(
+                            "http://localhost:5173",
+                            "http://127.0.0.1:5173",
+                            "http://localhost",
+                            "http://localhost:80",
+                            "http://127.0.0.1"
+                        )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
                         .allowCredentials(true);
