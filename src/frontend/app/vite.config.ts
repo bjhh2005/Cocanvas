@@ -14,6 +14,11 @@ export default defineConfig({
         changeOrigin: true,
         // Vite 代理跟 Nginx 保持一致的行为：将 /api 前缀去掉
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/ws': {
+        target: process.env.VITE_PROXY_TARGET || 'http://host.docker.internal:8080',
+        changeOrigin: true,
+        ws: true
       }
     }
   }

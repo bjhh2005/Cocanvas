@@ -12,7 +12,8 @@ services:
       - ./src/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
-      - backend
+      - backend1
+      - backend2
 
   # ==========================================
   # 前端服务 (React / Vite)
@@ -35,7 +36,7 @@ services:
   # ==========================================
   # 后端服务 (Spring Boot) - 展示分布式特性
   # ==========================================
-  backend:
+  backend1:
     build:
       context: ./src/backend/java
       network: host
@@ -46,9 +47,38 @@ services:
     depends_on:
       - redis
       - mysql
-    deploy:
-      replicas: 2 # 【分布式核心】启动2个后端实例，让Nginx进行负载均衡
-    # 宿主机上不要映射后端的端口，因为启动了2个实例会发生端口冲突。统由 Nginx 的 80 端口转发进入。
+    environment:
+      REALTIME_BROADCASTER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
+      NODE_PUBLIC_HOST: localhost
+      NODE_PUBLIC_PORT: 80
+      NODE_ID: backend1
+    # 宿主机上不要映射后端端口，统一由 Nginx 的 80 端口转发进入。
+
+  backend2:
+    build:
+      context: ./src/backend/java
+      network: host
+      args:
+        GRADLE_PROXY_HOST: ${GRADLE_PROXY_HOST:-host.docker.internal}
+        GRADLE_PROXY_PORT: ${GRADLE_PROXY_PORT:-7890}
+    depends_on:
+      - redis
+      - mysql
+    environment:
+      REALTIME_BROADCASTER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
+      NODE_PUBLIC_HOST: localhost
+      NODE_PUBLIC_PORT: 80
+      NODE_ID: backend2
 
   # ==========================================
   # 基础设施
