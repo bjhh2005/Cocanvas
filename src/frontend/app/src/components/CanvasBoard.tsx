@@ -1,4 +1,5 @@
 import { Circle, Group, Layer, Rect, Stage, Text } from 'react-konva';
+import { useMemo } from 'react';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import type { ShapeOperation } from '../types/protocol';
 
@@ -9,7 +10,8 @@ type CanvasBoardProps = {
 };
 
 export function CanvasBoard({ width, height, onShapeOp }: CanvasBoardProps) {
-  const shapes = useShapeStore((state) => Object.values(state.shapes));
+  const shapeMap = useShapeStore((state) => state.shapes);
+  const shapes = useMemo(() => Object.values(shapeMap), [shapeMap]);
   const selectedId = useShapeStore((state) => state.selectedId);
   const setSelectedId = useShapeStore((state) => state.setSelectedId);
 

@@ -1,8 +1,9 @@
-import type { CSSProperties } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { useUserStore } from '../store/userStore';
 
 export function CursorLayer() {
-  const remotes = useUserStore((state) => Object.values(state.remotes));
+  const remoteMap = useUserStore((state) => state.remotes);
+  const remotes = useMemo(() => Object.values(remoteMap), [remoteMap]);
 
   return (
     <div className="cursor-layer" aria-label="Remote cursors">
