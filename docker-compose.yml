@@ -45,8 +45,11 @@ services:
         GRADLE_PROXY_HOST: ${GRADLE_PROXY_HOST:-host.docker.internal}
         GRADLE_PROXY_PORT: ${GRADLE_PROXY_PORT:-7890}
     depends_on:
-      - redis
-      - mysql
+      redis:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
     environment:
       REALTIME_BROADCASTER: redis
       REDIS_HOST: redis
@@ -67,8 +70,11 @@ services:
         GRADLE_PROXY_HOST: ${GRADLE_PROXY_HOST:-host.docker.internal}
         GRADLE_PROXY_PORT: ${GRADLE_PROXY_PORT:-7890}
     depends_on:
-      - redis
-      - mysql
+      redis:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
     environment:
       REALTIME_BROADCASTER: redis
       REDIS_HOST: redis
@@ -93,6 +99,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-cocanvas}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     ports:
       - "${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
