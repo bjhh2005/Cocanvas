@@ -53,6 +53,10 @@ export class WSClient {
     this.send(JSON.stringify(data));
   }
 
+  getStatus() {
+    return this.status;
+  }
+
   onMessage(handler: MessageHandler) {
     this.messageHandlers.add(handler);
     return () => this.messageHandlers.delete(handler);

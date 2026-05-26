@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CanvasBoard } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
 import { createShapeOp, Toolbar } from '../components/Toolbar';
 import { HybridLogicalClock } from '../crdt/hlc';
-import { getRoom, getRoomHistory } from '../network/api';
+import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore } from '../store/shapeStore';
@@ -45,6 +45,15 @@ const resolveWsUrl = (wsUrl: string) => {
   }
 };
 
+const parseSnapshotPayload = (payload: string) => {
+  const parsed = JSON.parse(payload || '{}') as unknown;
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, Record<string, unknown>>;
+  }
+
+  return {};
+};
+
 export function Room() {
   const { roomId = '' } = useParams();
   const [events, setEvents] = useState<string[]>([]);
@@ -56,6 +65,9 @@ export function Room() {
   const lastCursorSentAt = useRef(0);
   const lastShapeSentAt = useRef(0);
   const reconnectAttemptRef = useRef(0);
+  const restoringRef = useRef(false);
+  const bufferedOpsRef = useRef<ShapeOperation[]>([]);
+  const restoreGenerationRef = useRef(0);
   const setRoomId = useConnectionStore((state) => state.setRoomId);
   const setStatus = useConnectionStore((state) => state.setStatus);
   const setClient = useConnectionStore((state) => state.setClient);
@@ -73,6 +85,44 @@ export function Room() {
   const replaceWithSnapshot = useShapeStore((state) => state.replaceWithSnapshot);
   const selectedId = useShapeStore((state) => state.selectedId);
   const selectedShape = useShapeStore((state) => selectedId ? state.shapes[selectedId] : null);
+
+  const applyHistoryState = useCallback((history: HistoryResponse) => {
+    const snapshot = parseSnapshotPayload(history.snapshot.payload);
+    replaceWithSnapshot(snapshot);
+    history.ops.forEach((op) => {
+      applyOp({
+        ...(JSON.parse(op.payload) as ShapeOperation),
+        hlc: op.hlc,
+        writerId: op.userId,
+      });
+    });
+
+    return history.ops.length;
+  }, [applyOp, replaceWithSnapshot]);
+
+  const restoreLatestState = useCallback(async () => {
+    const history = await getRoomHistory(roomId, Date.now());
+    return applyHistoryState(history);
+  }, [applyHistoryState, roomId]);
+
+  const replayBufferedOps = useCallback(() => {
+    const bufferedOps = bufferedOpsRef.current;
+    bufferedOpsRef.current = [];
+    bufferedOps.forEach(applyOp);
+    return bufferedOps.length;
+  }, [applyOp]);
+
+  const applyRemoteOp = useCallback((message: Extract<ServerMessage, { type: 'op' }>) => {
+    const mergedHlc = hlcRef.current?.update(message.hlc) ?? message.hlc;
+    const op = { ...message.op, hlc: mergedHlc, writerId: message.userId };
+
+    if (restoringRef.current) {
+      bufferedOpsRef.current.push(op);
+      return;
+    }
+
+    applyOp(op);
+  }, [applyOp]);
 
   if (!hlcRef.current) {
     hlcRef.current = new HybridLogicalClock(userId);
@@ -140,8 +190,13 @@ export function Room() {
       const unsubscribeStatus = client.onStatusChange((nextStatus) => {
         setStatus(nextStatus);
         if (nextStatus === 'connected') {
+          const connectedClient = client;
+          const restoreGeneration = restoreGenerationRef.current + 1;
+          restoreGenerationRef.current = restoreGeneration;
           reconnectAttemptRef.current = 0;
-          client?.sendJson({
+          restoringRef.current = true;
+          bufferedOpsRef.current = [];
+          connectedClient?.sendJson({
             type: 'join',
             msgId: msgId(),
             roomId,
@@ -149,6 +204,45 @@ export function Room() {
             displayName,
             color,
           });
+
+          void restoreLatestState()
+            .then((restoredOps) => {
+              if (
+                !active ||
+                client !== connectedClient ||
+                connectedClient?.getStatus() !== 'connected' ||
+                restoreGenerationRef.current !== restoreGeneration
+              ) {
+                return;
+              }
+
+              const replayedOps = replayBufferedOps();
+              setEvents((current) => [
+                `state restored: ${restoredOps} ops, replayed ${replayedOps}`,
+                ...current,
+              ].slice(0, 5));
+            })
+            .catch((err) => {
+              if (
+                !active ||
+                client !== connectedClient ||
+                connectedClient?.getStatus() !== 'connected' ||
+                restoreGenerationRef.current !== restoreGeneration
+              ) {
+                return;
+              }
+
+              const replayedOps = replayBufferedOps();
+              setEvents((current) => [
+                `restore failed: ${err instanceof Error ? err.message : 'unknown'}, replayed ${replayedOps}`,
+                ...current,
+              ].slice(0, 5));
+            })
+            .finally(() => {
+              if (restoreGenerationRef.current === restoreGeneration) {
+                restoringRef.current = false;
+              }
+            });
         }
 
         if (nextStatus === 'closed' || nextStatus === 'error') {
@@ -182,8 +276,7 @@ export function Room() {
         }
 
         if (message.type === 'op') {
-          const mergedHlc = hlcRef.current?.update(message.hlc) ?? message.hlc;
-          applyOp({ ...message.op, hlc: mergedHlc, writerId: message.userId });
+          applyRemoteOp(message);
           return;
         }
 
@@ -217,7 +310,7 @@ export function Room() {
       setClient(null);
       setRoomId(null);
     };
-  }, [addPeer, applyOp, color, displayName, removePeer, roomId, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
+  }, [addPeer, applyOp, applyRemoteOp, color, displayName, removePeer, replayBufferedOps, restoreLatestState, roomId, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -320,16 +413,8 @@ export function Room() {
     setHistoryLoading(true);
     try {
       const history = await getRoomHistory(roomId, historyAt);
-      const snapshot = JSON.parse(history.snapshot.payload || '{}') as Record<string, Record<string, unknown>>;
-      replaceWithSnapshot(snapshot);
-      history.ops.forEach((op) => {
-        applyOp({
-          ...(JSON.parse(op.payload) as ShapeOperation),
-          hlc: op.hlc,
-          writerId: op.userId,
-        });
-      });
-      setEvents((current) => [`history loaded: ${history.ops.length} ops`, ...current].slice(0, 5));
+      const appliedOps = applyHistoryState(history);
+      setEvents((current) => [`history loaded: ${appliedOps} ops`, ...current].slice(0, 5));
     } catch (err) {
       setEvents((current) => [`history error: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
     } finally {
