@@ -38,6 +38,7 @@ export type ShapeAttrs = {
 };
 
 export type ShapeOperation = {
+  opId?: string;
   opType: OpType;
   shapeId: string;
   shapeType: ShapeType;

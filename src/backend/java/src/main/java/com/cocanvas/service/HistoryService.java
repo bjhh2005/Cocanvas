@@ -9,6 +9,7 @@ import com.cocanvas.persistence.repository.OperationLogRepository;
 import com.cocanvas.persistence.repository.SnapshotRepository;
 import com.cocanvas.protocol.common.ShapeOperation;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -34,8 +35,15 @@ public class HistoryService {
 
     public void recordOperation(String roomId, String userId, String hlc, ShapeOperation op) {
         try {
+            String opId = op.opId() == null || op.opId().isBlank()
+                    ? UUID.randomUUID().toString()
+                    : op.opId();
+            if (operationLogRepository.existsById(opId)) {
+                return;
+            }
+
             OperationLogEntity entity = new OperationLogEntity();
-            entity.setOpId(UUID.randomUUID().toString());
+            entity.setOpId(opId);
             entity.setRoomId(roomId);
             entity.setUserId(userId);
             entity.setHlc(hlc);
@@ -45,6 +53,8 @@ public class HistoryService {
             entity.setCreatedAt(System.currentTimeMillis());
             entity.setPayload(objectMapper.writeValueAsString(op));
             operationLogRepository.save(entity);
+        } catch (DataIntegrityViolationException ignored) {
+            // Duplicate opId means a pending operation was replayed after reconnect; the first write wins.
         } catch (Exception ignored) {
             // Persistence is best-effort during early demo stages; realtime collaboration should keep flowing.
         }

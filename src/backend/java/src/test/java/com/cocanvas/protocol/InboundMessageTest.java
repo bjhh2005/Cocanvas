@@ -44,6 +44,7 @@ class InboundMessageTest {
                   "userId": "user-a",
                   "hlc": "1716123456789.0.user-a",
                   "op": {
+                    "opId": "op-a",
                     "opType": "create",
                     "shapeId": "shape-a",
                     "shapeType": "rect",
@@ -57,6 +58,7 @@ class InboundMessageTest {
         assertThat(message).isInstanceOf(OpMessage.class);
         OpMessage opMessage = (OpMessage) message;
         assertThat(opMessage.hlc()).isEqualTo("1716123456789.0.user-a");
+        assertThat(opMessage.op().opId()).isEqualTo("op-a");
         assertThat(opMessage.op().shapeId()).isEqualTo("shape-a");
         assertThat(opMessage.op().attrs()).containsEntry("fill", "#3498db");
     }
