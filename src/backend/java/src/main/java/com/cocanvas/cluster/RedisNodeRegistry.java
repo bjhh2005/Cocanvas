@@ -22,24 +22,27 @@ public class RedisNodeRegistry implements NodeRegistry {
     private final ObjectMapper objectMapper;
     private final String host;
     private final int port;
+    private final String wsPath;
 
     public RedisNodeRegistry(
             NodeIdentity nodeIdentity,
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
             @Value("${node.public-host:localhost}") String host,
-            @Value("${node.public-port:8080}") int port
+            @Value("${node.public-port:8080}") int port,
+            @Value("${node.public-ws-path:/ws/collab}") String wsPath
     ) {
         this.nodeIdentity = nodeIdentity;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.host = host;
         this.port = port;
+        this.wsPath = wsPath;
     }
 
     @Scheduled(fixedRate = 5000)
     public void heartbeat() throws Exception {
-        NodeInfo nodeInfo = new NodeInfo(nodeIdentity.nodeId(), host, port, System.currentTimeMillis());
+        NodeInfo nodeInfo = new NodeInfo(nodeIdentity.nodeId(), host, port, wsPath, System.currentTimeMillis());
         redisTemplate.opsForValue().set(
                 NODE_KEY_PREFIX + nodeInfo.nodeId(),
                 objectMapper.writeValueAsString(nodeInfo),

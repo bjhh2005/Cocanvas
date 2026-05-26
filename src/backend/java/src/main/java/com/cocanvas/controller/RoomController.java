@@ -33,11 +33,20 @@ public class RoomController {
         NodeInfo node = nodeRouter.routeRoom(roomId);
         int port = node.port();
         String host = node.host();
+        String path = normalizeWsPath(node.wsPath());
         if (port == 80) {
-            return "ws://" + host + "/ws/collab";
+            return "ws://" + host + path;
         }
 
-        return "ws://" + host + ":" + port + "/ws/collab";
+        return "ws://" + host + ":" + port + path;
+    }
+
+    private String normalizeWsPath(String wsPath) {
+        if (wsPath == null || wsPath.isBlank()) {
+            return "/ws/collab";
+        }
+
+        return wsPath.startsWith("/") ? wsPath : "/" + wsPath;
     }
 
     public record CreateRoomResponse(String roomId, String wsUrl, long createdAt) {

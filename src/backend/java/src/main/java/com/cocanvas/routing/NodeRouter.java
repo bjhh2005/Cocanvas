@@ -22,7 +22,7 @@ public class NodeRouter {
                 .toList();
 
         if (nodes.isEmpty()) {
-            return new NodeInfo("local", "localhost", 8080, System.currentTimeMillis());
+            return new NodeInfo("local", "localhost", 8080, "/ws/collab", System.currentTimeMillis());
         }
 
         ConsistentHashRing ring = new ConsistentHashRing(nodes.stream().map(NodeInfo::nodeId).toList(), 64);

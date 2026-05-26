@@ -30,6 +30,21 @@ const toRelativePoint = (event: React.MouseEvent<HTMLDivElement>) => {
   };
 };
 
+const resolveWsUrl = (wsUrl: string) => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  try {
+    const url = new URL(wsUrl);
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      return `${protocol}//${window.location.host}${url.pathname}${url.search}`;
+    }
+
+    return wsUrl;
+  } catch {
+    return `${protocol}//${window.location.host}${wsUrl.startsWith('/') ? wsUrl : `/${wsUrl}`}`;
+  }
+};
+
 export function Room() {
   const { roomId = '' } = useParams();
   const [events, setEvents] = useState<string[]>([]);
@@ -118,8 +133,7 @@ export function Room() {
         return;
       }
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = room.wsUrl.replace(/^ws:\/\/localhost:8080/, `${protocol}//${window.location.host}`);
+      const url = resolveWsUrl(room.wsUrl);
       client = new WSClient(url);
       setClient(client);
 
