@@ -1,19 +1,44 @@
 import type { ShapeOperation, ShapeType } from '../types/protocol';
 
+export type ToolMode = 'select' | 'hand' | 'sticky' | 'text' | 'rect' | 'circle';
+
 type ToolbarProps = {
+  activeTool: ToolMode;
   selectedId: string | null;
-  onCreateShape: (shapeType: ShapeType) => void;
+  onSelectTool: (tool: ToolMode) => void;
   onDeleteSelected: () => void;
 };
 
-export function Toolbar({ selectedId, onCreateShape, onDeleteSelected }: ToolbarProps) {
+const tools: Array<{ mode: ToolMode; label: string; icon: string; title: string }> = [
+  { mode: 'select', label: 'Select', icon: 'V', title: 'Select' },
+  { mode: 'hand', label: 'Hand', icon: 'H', title: 'Pan canvas' },
+  { mode: 'sticky', label: 'Sticky', icon: 'N', title: 'Sticky note' },
+  { mode: 'text', label: 'Text', icon: 'T', title: 'Text' },
+  { mode: 'rect', label: 'Rect', icon: 'R', title: 'Rectangle' },
+  { mode: 'circle', label: 'Circle', icon: 'O', title: 'Circle' },
+];
+
+export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
   return (
-    <div className="toolbar" aria-label="Canvas toolbar">
-      <button type="button" onClick={() => onCreateShape('rect')}>Rect</button>
-      <button type="button" onClick={() => onCreateShape('circle')}>Circle</button>
-      <button type="button" onClick={() => onCreateShape('text')}>Text</button>
-      <button type="button" onClick={onDeleteSelected} disabled={!selectedId}>Delete</button>
-    </div>
+    <aside className="left-toolbar" aria-label="Canvas toolbar">
+      {tools.map((tool) => (
+        <button
+          key={tool.mode}
+          type="button"
+          title={tool.title}
+          className={activeTool === tool.mode ? 'active' : undefined}
+          onClick={() => onSelectTool(tool.mode)}
+        >
+          <span>{tool.icon}</span>
+          <small>{tool.label}</small>
+        </button>
+      ))}
+      <div className="toolbar-divider" />
+      <button type="button" title="Delete" onClick={onDeleteSelected} disabled={!selectedId}>
+        <span>Del</span>
+        <small>Delete</small>
+      </button>
+    </aside>
   );
 }
 
@@ -36,7 +61,38 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
       opType: 'create',
       shapeId,
       shapeType,
-      attrs: { x, y, text: 'Cocanvas', fill: '#08060d', stroke: 'transparent', strokeWidth: 0 },
+      attrs: {
+        x,
+        y,
+        text: 'Cocanvas',
+        fill: 'transparent',
+        textColor: '#08060d',
+        fontSize: 28,
+        fontStyle: 'bold',
+        stroke: 'transparent',
+        strokeWidth: 0,
+      },
+    };
+  }
+
+  if (shapeType === 'sticky') {
+    return {
+      opType: 'create',
+      shapeId,
+      shapeType,
+      attrs: {
+        x,
+        y,
+        w: 190,
+        h: 170,
+        text: 'Add idea',
+        fill: '#ffd966',
+        textColor: '#202124',
+        fontSize: 22,
+        stroke: 'transparent',
+        strokeWidth: 0,
+        cornerRadius: 10,
+      },
     };
   }
 

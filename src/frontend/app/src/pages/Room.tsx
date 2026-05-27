@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CanvasBoard } from '../components/CanvasBoard';
+import { CanvasBoard, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
-import { createShapeOp, Toolbar } from '../components/Toolbar';
+import { Toolbar, type ToolMode } from '../components/Toolbar';
 import { HybridLogicalClock } from '../crdt/hlc';
 import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore } from '../store/shapeStore';
 import { useUserStore } from '../store/userStore';
-import type { ServerMessage, ShapeOperation, ShapeType } from '../types/protocol';
+import type { ServerMessage, ShapeOperation } from '../types/protocol';
 
 const cursorIntervalMs = 50;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
+const stickyColors = ['#ffd966', '#9fc5e8', '#b6d7a8', '#ead1dc', '#f9cb9c', '#d9d2e9', '#b7e1cd', '#ffffff'];
 
 const msgId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -60,6 +61,8 @@ export function Room() {
   const [historyAt, setHistoryAt] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 960, height: 520 });
+  const [activeTool, setActiveTool] = useState<ToolMode>('select');
+  const [viewport, setViewport] = useState<ViewportState>({ scale: 1, x: 0, y: 0 });
   const stageRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
@@ -129,10 +132,10 @@ export function Room() {
     hlcRef.current = new HybridLogicalClock(userId);
   }
 
-  const stampOp = (op: ShapeOperation): ShapeOperation => {
+  const stampOp = useCallback((op: ShapeOperation): ShapeOperation => {
     const hlc = op.hlc ?? hlcRef.current?.now() ?? `${Date.now()}.0.${userId}`;
     return { ...op, opId: op.opId ?? msgId(), hlc, writerId: userId };
-  };
+  }, [userId]);
 
   const sendStampedOp = useCallback((client: WSClient, op: ShapeOperation) => {
     client.sendJson({
@@ -183,7 +186,7 @@ export function Room() {
     return pendingOpsRef.current.length;
   }, []);
 
-  const sendShapeOp = (op: ShapeOperation) => {
+  const sendShapeOp = useCallback((op: ShapeOperation) => {
     const stampedOp = stampOp(op);
     applyOp(stampedOp);
     if (status !== 'connected' || !wsClient) {
@@ -193,7 +196,7 @@ export function Room() {
     }
 
     sendStampedOp(wsClient, stampedOp);
-  };
+  }, [applyOp, queuePendingOp, sendStampedOp, stampOp, status, wsClient]);
 
   useEffect(() => {
     if (!roomId) {
@@ -380,6 +383,31 @@ export function Room() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT') {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        setActiveTool('select');
+      }
+
+      if (event.key.toLowerCase() === 'v') {
+        setActiveTool('select');
+      }
+
+      if (event.key.toLowerCase() === 'h') {
+        setActiveTool('hand');
+      }
+
+      if (event.key.toLowerCase() === 'n') {
+        setActiveTool('sticky');
+      }
+
+      if (event.key.toLowerCase() === 't') {
+        setActiveTool('text');
+      }
+
       if (event.key !== 'Delete' && event.key !== 'Backspace') {
         return;
       }
@@ -398,7 +426,7 @@ export function Room() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [queuePendingOp, roomId, selectedShape, sendStampedOp, status, userId, wsClient]);
+  }, [selectedShape, sendShapeOp]);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     const now = Date.now();
@@ -418,10 +446,8 @@ export function Room() {
     });
   };
 
-  const handleCreateShape = (shapeType: ShapeType) => {
-    const centerX = Math.max(80, Math.round(stageSize.width / 2 - 70 + Math.random() * 60));
-    const centerY = Math.max(80, Math.round(stageSize.height / 2 - 45 + Math.random() * 60));
-    sendShapeOp(createShapeOp(shapeType, centerX, centerY));
+  const handleToolSelect = (tool: ToolMode) => {
+    setActiveTool(tool);
   };
 
   const handleDeleteSelected = () => {
@@ -455,6 +481,37 @@ export function Room() {
     sendStampedOp(wsClient, stampedOp);
   };
 
+  const handleStyleChange = (attrs: ShapeOperation['attrs']) => {
+    if (!selectedShape) {
+      return;
+    }
+
+    sendShapeOp({
+      opType: 'update',
+      shapeId: selectedShape.id,
+      shapeType: selectedShape.type,
+      attrs,
+    });
+  };
+
+  const zoomBy = (factor: number) => {
+    const nextScale = Math.min(2.4, Math.max(0.35, viewport.scale * factor));
+    const center = { x: stageSize.width / 2, y: stageSize.height / 2 };
+    const canvasCenter = {
+      x: (center.x - viewport.x) / viewport.scale,
+      y: (center.y - viewport.y) / viewport.scale,
+    };
+    setViewport({
+      scale: nextScale,
+      x: center.x - canvasCenter.x * nextScale,
+      y: center.y - canvasCenter.y * nextScale,
+    });
+  };
+
+  const fitViewport = () => {
+    setViewport({ scale: 1, x: 0, y: 0 });
+  };
+
   const handleLoadHistory = async () => {
     setHistoryLoading(true);
     try {
@@ -469,27 +526,78 @@ export function Room() {
   };
 
   return (
-    <main className="room-shell">
-      <header className="room-header">
+    <main className="whiteboard-shell">
+      <header className="whiteboard-topbar">
         <div>
           <Link to="/" className="back-link">← Home</Link>
-          <h1>Room {roomId}</h1>
-          <p>你是 <strong style={{ color }}>{displayName}</strong>，移动鼠标即可广播光标。</p>
+          <h1>Cocanvas board</h1>
+          <p>Room {roomId} · <strong style={{ color }}>{displayName}</strong></p>
         </div>
         <div className="room-stats">
           <span>WS: <strong>{status}</strong></span>
           <span>Peers: <strong>{remoteCount}</strong></span>
+          <span>Tool: <strong>{activeTool}</strong></span>
         </div>
       </header>
 
       <Toolbar
+        activeTool={activeTool}
         selectedId={selectedId}
-        onCreateShape={handleCreateShape}
+        onSelectTool={handleToolSelect}
         onDeleteSelected={handleDeleteSelected}
       />
 
-      <section className="timeline-panel">
-        <label htmlFor="history-at">Time travel timestamp</label>
+      {selectedShape && (
+        <section className="context-toolbar" aria-label="Selection styles">
+          <span>{selectedShape.type}</span>
+          <div className="swatches" aria-label="Fill color">
+            {stickyColors.map((fill) => (
+              <button
+                key={fill}
+                type="button"
+                title={fill}
+                style={{ background: fill }}
+                onClick={() => handleStyleChange({
+                  fill,
+                  textColor: fill === '#ffffff' || fill === '#ffd966' ? '#202124' : '#111827',
+                })}
+              />
+            ))}
+          </div>
+          <button type="button" onClick={() => handleStyleChange({ fontSize: Math.max(14, (selectedShape.attrs.fontSize ?? 22) - 2) })}>A-</button>
+          <button type="button" onClick={() => handleStyleChange({ fontSize: Math.min(48, (selectedShape.attrs.fontSize ?? 22) + 2) })}>A+</button>
+          <button type="button" onClick={handleDeleteSelected}>Delete</button>
+        </section>
+      )}
+
+      <section className="canvas-stage whiteboard-canvas" ref={stageRef} onMouseMove={handleMouseMove}>
+        <CanvasBoard
+          width={stageSize.width}
+          height={stageSize.height}
+          activeTool={activeTool}
+          viewport={viewport}
+          onViewportChange={setViewport}
+          onShapeOp={handleShapeMove}
+          onCreateShape={(op) => {
+            sendShapeOp(op);
+            setActiveTool('select');
+          }}
+        />
+        <CursorLayer />
+        <div className="board-help">
+          <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Double-click sticky/text to edit'}</strong>
+          <span>Wheel to zoom · V select · H hand · N sticky · T text</span>
+        </div>
+        <div className="zoom-controls" aria-label="Zoom controls">
+          <button type="button" onClick={() => zoomBy(0.9)}>-</button>
+          <span>{Math.round(viewport.scale * 100)}%</span>
+          <button type="button" onClick={() => zoomBy(1.1)}>+</button>
+          <button type="button" onClick={fitViewport}>Fit</button>
+        </div>
+      </section>
+
+      <section className="timeline-panel compact-history">
+        <label htmlFor="history-at">History timestamp</label>
         <input
           id="history-at"
           type="number"
@@ -499,15 +607,6 @@ export function Room() {
         <button type="button" onClick={handleLoadHistory} disabled={historyLoading}>
           {historyLoading ? 'Loading...' : 'Load history'}
         </button>
-      </section>
-
-      <section className="canvas-stage" ref={stageRef} onMouseMove={handleMouseMove}>
-        <CanvasBoard width={stageSize.width} height={stageSize.height} onShapeOp={handleShapeMove} />
-        <CursorLayer />
-        <div className="canvas-hint">
-          <strong>Mouse broadcast zone</strong>
-          <span>打开第二个窗口进入同一 roomId，添加或拖动图形会同步给对方。</span>
-        </div>
       </section>
 
       <ol className="room-events" aria-label="Room events">

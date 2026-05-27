@@ -36,12 +36,16 @@ type ShapeState = {
 const defaultsFor = (shapeType: ShapeType): CanvasShape['attrs'] => ({
   x: 120,
   y: 120,
-  w: shapeType === 'rect' ? 140 : undefined,
-  h: shapeType === 'rect' ? 90 : undefined,
+  w: shapeType === 'rect' ? 140 : shapeType === 'sticky' ? 190 : undefined,
+  h: shapeType === 'rect' ? 90 : shapeType === 'sticky' ? 170 : undefined,
   radius: shapeType === 'circle' ? 48 : undefined,
-  text: shapeType === 'text' ? 'Text' : undefined,
-  fill: shapeType === 'text' ? '#08060d' : '#3498db',
-  stroke: '#123a32',
+  text: shapeType === 'text' ? 'Text' : shapeType === 'sticky' ? 'Add idea' : undefined,
+  fill: shapeType === 'text' ? 'transparent' : shapeType === 'sticky' ? '#ffd966' : '#3498db',
+  textColor: shapeType === 'text' ? '#08060d' : '#202124',
+  fontSize: shapeType === 'sticky' ? 22 : 26,
+  fontStyle: shapeType === 'text' ? 'bold' : 'normal',
+  cornerRadius: shapeType === 'sticky' ? 10 : 16,
+  stroke: shapeType === 'text' || shapeType === 'sticky' ? 'transparent' : '#123a32',
   strokeWidth: shapeType === 'text' ? 0 : 2,
 });
 

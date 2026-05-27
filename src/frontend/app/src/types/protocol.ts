@@ -22,7 +22,7 @@ export type CursorMessage = {
   y: number;
 };
 
-export type ShapeType = 'rect' | 'circle' | 'text';
+export type ShapeType = 'rect' | 'circle' | 'text' | 'sticky';
 export type OpType = 'create' | 'update' | 'delete';
 
 export type ShapeAttrs = {
@@ -35,6 +35,10 @@ export type ShapeAttrs = {
   stroke?: string;
   strokeWidth?: number;
   text?: string;
+  textColor?: string;
+  fontSize?: number;
+  fontStyle?: string;
+  cornerRadius?: number;
 };
 
 export type ShapeOperation = {
