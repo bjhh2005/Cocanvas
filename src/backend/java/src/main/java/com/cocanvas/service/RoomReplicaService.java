@@ -20,6 +20,15 @@ public class RoomReplicaService {
 
     public String apply(String roomId, String hlc, String userId, ShapeOperation op) {
         String mergedHlc = clock.update(hlc);
+        applyMerged(roomId, mergedHlc, userId, op);
+        return mergedHlc;
+    }
+
+    public void applyRemote(String roomId, String mergedHlc, String userId, ShapeOperation op) {
+        applyMerged(roomId, mergedHlc, userId, op);
+    }
+
+    private void applyMerged(String roomId, String mergedHlc, String userId, ShapeOperation op) {
         Map<String, ReplicatedShape> shapes = rooms.computeIfAbsent(roomId, key -> new ConcurrentHashMap<>());
 
         if ("delete".equals(op.opType())) {
@@ -32,7 +41,7 @@ public class RoomReplicaService {
                         userId
                 ));
             }
-            return mergedHlc;
+            return;
         }
 
         shapes.compute(op.shapeId(), (shapeId, existing) -> {
@@ -57,8 +66,6 @@ public class RoomReplicaService {
 
             return current;
         });
-
-        return mergedHlc;
     }
 
     public Set<String> roomIds() {

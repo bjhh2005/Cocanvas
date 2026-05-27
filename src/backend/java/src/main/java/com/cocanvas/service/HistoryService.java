@@ -66,22 +66,14 @@ public class HistoryService {
     }
 
     public HistoryResponse history(String roomId, long at) {
-        SnapshotEntity snapshot = snapshotRepository
-                .findFirstByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(roomId, at)
-                .orElseGet(() -> emptySnapshot(roomId));
-
         List<HistoryOp> ops = operationLogRepository
-                .findByRoomIdAndCreatedAtGreaterThanAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
-                        roomId,
-                        snapshot.getCreatedAt(),
-                        at
-                )
+                .findByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtAsc(roomId, at)
                 .stream()
                 .map(this::toHistoryOp)
                 .toList();
 
         return new HistoryResponse(
-                new HistorySnapshot(snapshot.getSnapshotId(), snapshot.getHlc(), snapshot.getCreatedAt(), snapshot.getPayload()),
+                new HistorySnapshot("replay-from-start-" + roomId, "", 0, "{}"),
                 ops
         );
     }
@@ -98,16 +90,6 @@ public class HistoryService {
         } catch (Exception ignored) {
             // Snapshotting should never interrupt live collaboration.
         }
-    }
-
-    private SnapshotEntity emptySnapshot(String roomId) {
-        SnapshotEntity entity = new SnapshotEntity();
-        entity.setSnapshotId("empty-" + roomId);
-        entity.setRoomId(roomId);
-        entity.setHlc("");
-        entity.setCreatedAt(0);
-        entity.setPayload("[]");
-        return entity;
     }
 
     private HistoryOp toHistoryOp(OperationLogEntity entity) {
