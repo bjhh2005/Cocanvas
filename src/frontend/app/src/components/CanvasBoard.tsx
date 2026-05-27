@@ -1,5 +1,5 @@
 import { Circle, Group, Layer, Rect, Stage, Text } from 'react-konva';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { createShapeOp, type ToolMode } from './Toolbar';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
@@ -16,8 +16,10 @@ type CanvasBoardProps = {
   height: number;
   activeTool: ToolMode;
   viewport: ViewportState;
+  previewPositions: Record<string, { x: number; y: number }>;
   onViewportChange: (viewport: ViewportState) => void;
-  onShapeOp: (op: ShapeOperation) => void;
+  onShapePreview: (op: ShapeOperation) => void;
+  onShapeCommit: (op: ShapeOperation) => void;
   onCreateShape: (op: ShapeOperation) => void;
 };
 
@@ -30,6 +32,16 @@ type EditingState = {
   value: string;
 };
 
+type DragState = {
+  shapeId: string;
+  shapeType: CanvasShape['type'];
+  offsetX: number;
+  offsetY: number;
+  x: number;
+  y: number;
+  moved: boolean;
+};
+
 const minScale = 0.35;
 const maxScale = 2.4;
 
@@ -38,8 +50,10 @@ export function CanvasBoard({
   height,
   activeTool,
   viewport,
+  previewPositions,
   onViewportChange,
-  onShapeOp,
+  onShapePreview,
+  onShapeCommit,
   onCreateShape,
 }: CanvasBoardProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -48,6 +62,15 @@ export function CanvasBoard({
   const selectedId = useShapeStore((state) => state.selectedId);
   const setSelectedId = useShapeStore((state) => state.setSelectedId);
   const [editing, setEditing] = useState<EditingState | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+
+  useEffect(() => {
+    if (activeTool === 'hand') {
+      dragStateRef.current = null;
+      setDragState(null);
+    }
+  }, [activeTool]);
 
   const screenToCanvas = (point: { x: number; y: number }) => ({
     x: (point.x - viewport.x) / viewport.scale,
@@ -99,6 +122,87 @@ export function CanvasBoard({
     }
   };
 
+  const beginShapeDrag = (shape: CanvasShape, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (activeTool === 'hand') {
+      return;
+    }
+
+    event.cancelBubble = true;
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) {
+      return;
+    }
+
+    const point = screenToCanvas(pointer);
+    const nextDragState = {
+      shapeId: shape.id,
+      shapeType: shape.type,
+      offsetX: point.x - shape.attrs.x,
+      offsetY: point.y - shape.attrs.y,
+      x: shape.attrs.x,
+      y: shape.attrs.y,
+      moved: false,
+    };
+
+    setSelectedId(shape.id);
+    dragStateRef.current = nextDragState;
+    setDragState(nextDragState);
+  };
+
+  const updateShapeDrag = () => {
+    const current = dragStateRef.current;
+    if (!current) {
+      return;
+    }
+
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) {
+      return;
+    }
+
+    const point = screenToCanvas(pointer);
+    const x = Math.round(point.x - current.offsetX);
+    const y = Math.round(point.y - current.offsetY);
+    if (x === current.x && y === current.y) {
+      return;
+    }
+
+    const nextDragState = {
+      ...current,
+      x,
+      y,
+      moved: true,
+    };
+
+    dragStateRef.current = nextDragState;
+    setDragState(nextDragState);
+    onShapePreview({
+      opType: 'update',
+      shapeId: current.shapeId,
+      shapeType: current.shapeType,
+      attrs: { x, y },
+    });
+  };
+
+  const commitShapeDrag = () => {
+    const current = dragStateRef.current;
+    if (!current) {
+      return;
+    }
+
+    if (current.moved) {
+      onShapeCommit({
+        opType: 'update',
+        shapeId: current.shapeId,
+        shapeType: current.shapeType,
+        attrs: { x: current.x, y: current.y },
+      });
+    }
+
+    dragStateRef.current = null;
+    setDragState(null);
+  };
+
   const beginEdit = (shape: CanvasShape) => {
     if (shape.type !== 'text' && shape.type !== 'sticky') {
       return;
@@ -120,7 +224,7 @@ export function CanvasBoard({
       return;
     }
 
-    onShapeOp({
+    onShapeCommit({
       opType: 'update',
       shapeId: editing.shape.id,
       shapeType: editing.shape.type,
@@ -143,25 +247,33 @@ export function CanvasBoard({
         onDragEnd={(event) => onViewportChange({ ...viewport, x: event.target.x(), y: event.target.y() })}
         onWheel={handleWheel}
         onMouseDown={handleStageMouseDown}
+        onMouseMove={updateShapeDrag}
+        onMouseUp={commitShapeDrag}
+        onMouseLeave={commitShapeDrag}
+        onTouchMove={updateShapeDrag}
+        onTouchEnd={commitShapeDrag}
       >
         <Layer>
-          {shapes.map((shape) => (
-            <ShapeNode
-              key={shape.id}
-              shape={shape}
-              selected={shape.id === selectedId}
-              editable={shape.type === 'text' || shape.type === 'sticky'}
-              draggable={activeTool !== 'hand'}
-              onSelect={() => setSelectedId(shape.id)}
-              onEdit={() => beginEdit(shape)}
-              onMove={(x, y) => onShapeOp({
-                opType: 'update',
-                shapeId: shape.id,
-                shapeType: shape.type,
-                attrs: { x, y },
-              })}
-            />
-          ))}
+          {shapes.map((shape) => {
+            const previewPosition = previewPositions[shape.id];
+            const renderedShape = dragState?.shapeId === shape.id
+              ? { ...shape, attrs: { ...shape.attrs, x: dragState.x, y: dragState.y } }
+              : previewPosition
+                ? { ...shape, attrs: { ...shape.attrs, ...previewPosition } }
+              : shape;
+
+            return (
+              <ShapeNode
+                key={shape.id}
+                shape={renderedShape}
+                selected={shape.id === selectedId}
+                editable={shape.type === 'text' || shape.type === 'sticky'}
+                onSelect={() => setSelectedId(shape.id)}
+                onEdit={() => beginEdit(shape)}
+                onMoveStart={(event) => beginShapeDrag(shape, event)}
+              />
+            );
+          })}
         </Layer>
       </Stage>
 
@@ -199,24 +311,29 @@ type ShapeNodeProps = {
   shape: CanvasShape;
   selected: boolean;
   editable: boolean;
-  draggable: boolean;
   onSelect: () => void;
   onEdit: () => void;
-  onMove: (x: number, y: number) => void;
+  onMoveStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
 };
 
-function ShapeNode({ shape, selected, editable, draggable, onSelect, onEdit, onMove }: ShapeNodeProps) {
+function ShapeNode({
+  shape,
+  selected,
+  editable,
+  onSelect,
+  onEdit,
+  onMoveStart,
+}: ShapeNodeProps) {
   const common = {
     x: shape.attrs.x,
     y: shape.attrs.y,
-    draggable,
+    draggable: false,
     onClick: onSelect,
     onTap: onSelect,
     onDblClick: editable ? onEdit : undefined,
     onDblTap: editable ? onEdit : undefined,
-    onDragMove: (event: Konva.KonvaEventObject<DragEvent>) => {
-      onMove(Math.round(event.currentTarget.x()), Math.round(event.currentTarget.y()));
-    },
+    onMouseDown: onMoveStart,
+    onTouchStart: onMoveStart,
   };
 
   const stroke = selected ? '#1f6feb' : shape.attrs.stroke;

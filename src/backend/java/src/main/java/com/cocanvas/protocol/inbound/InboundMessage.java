@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = JoinMessage.class, name = "join"),
         @JsonSubTypes.Type(value = CursorMessage.class, name = "cursor"),
+        @JsonSubTypes.Type(value = ShapePreviewMessage.class, name = "shape-preview"),
         @JsonSubTypes.Type(value = OpMessage.class, name = "op")
 })
 public interface InboundMessage {

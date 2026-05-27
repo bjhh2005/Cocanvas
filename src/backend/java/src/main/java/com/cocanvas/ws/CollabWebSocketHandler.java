@@ -8,12 +8,14 @@ import com.cocanvas.protocol.inbound.CursorMessage;
 import com.cocanvas.protocol.inbound.InboundMessage;
 import com.cocanvas.protocol.inbound.JoinMessage;
 import com.cocanvas.protocol.inbound.OpMessage;
+import com.cocanvas.protocol.inbound.ShapePreviewMessage;
 import com.cocanvas.protocol.outbound.CursorBroadcastMessage;
 import com.cocanvas.protocol.outbound.ErrorMessage;
 import com.cocanvas.protocol.outbound.JoinedMessage;
 import com.cocanvas.protocol.outbound.OpBroadcastMessage;
 import com.cocanvas.protocol.outbound.PeerJoinedMessage;
 import com.cocanvas.protocol.outbound.PeerLeftMessage;
+import com.cocanvas.protocol.outbound.ShapePreviewBroadcastMessage;
 import com.cocanvas.pubsub.RealtimeBroadcaster;
 import com.cocanvas.service.HistoryService;
 import com.cocanvas.service.RoomReplicaService;
@@ -72,6 +74,11 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
 
         if (inbound instanceof OpMessage opMessage) {
             handleOp(session, opMessage);
+            return;
+        }
+
+        if (inbound instanceof ShapePreviewMessage previewMessage) {
+            handleShapePreview(session, previewMessage);
             return;
         }
 
@@ -147,6 +154,23 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         broadcaster.broadcast(
                 roomId,
                 new OpBroadcastMessage(userId, mergedHlc, message.op()),
+                session
+        );
+    }
+
+    private void handleShapePreview(WebSocketSession session, ShapePreviewMessage message) throws IOException {
+        Map<String, Object> attributes = session.getAttributes();
+        String roomId = attribute(attributes, RoomSessionRegistry.ROOM_ID);
+        String userId = attribute(attributes, RoomSessionRegistry.USER_ID);
+
+        if (roomId == null || userId == null) {
+            send(session, new ErrorMessage("not_joined", "Send join before shape preview"));
+            return;
+        }
+
+        broadcaster.broadcast(
+                roomId,
+                new ShapePreviewBroadcastMessage(userId, message.op()),
                 session
         );
     }

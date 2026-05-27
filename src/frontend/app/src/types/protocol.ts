@@ -60,7 +60,15 @@ export type OpMessage = {
   op: ShapeOperation;
 };
 
-export type ClientMessage = JoinMessage | CursorMessage | OpMessage;
+export type ShapePreviewMessage = {
+  type: 'shape-preview';
+  msgId: string;
+  roomId: string;
+  userId: string;
+  op: ShapeOperation;
+};
+
+export type ClientMessage = JoinMessage | CursorMessage | OpMessage | ShapePreviewMessage;
 
 export type JoinedMessage = {
   type: 'joined';
@@ -97,6 +105,12 @@ export type OpBroadcastMessage = {
   op: ShapeOperation;
 };
 
+export type ShapePreviewBroadcastMessage = {
+  type: 'shape-preview';
+  userId: string;
+  op: ShapeOperation;
+};
+
 export type ErrorMessage = {
   type: 'error';
   code: string;
@@ -109,4 +123,5 @@ export type ServerMessage =
   | PeerLeftMessage
   | CursorBroadcastMessage
   | OpBroadcastMessage
+  | ShapePreviewBroadcastMessage
   | ErrorMessage;

@@ -12,6 +12,7 @@ import { useUserStore } from '../store/userStore';
 import type { ServerMessage, ShapeOperation } from '../types/protocol';
 
 const cursorIntervalMs = 50;
+const shapePreviewIntervalMs = 16;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
 const stickyColors = ['#ffd966', '#9fc5e8', '#b6d7a8', '#ead1dc', '#f9cb9c', '#d9d2e9', '#b7e1cd', '#ffffff'];
 
@@ -86,10 +87,11 @@ export function Room() {
   const [stageSize, setStageSize] = useState({ width: 960, height: 520 });
   const [activeTool, setActiveTool] = useState<ToolMode>('select');
   const [viewport, setViewport] = useState<ViewportState>({ scale: 1, x: 0, y: 0 });
+  const [previewPositions, setPreviewPositions] = useState<Record<string, { x: number; y: number }>>({});
   const stageRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
-  const lastShapeSentAt = useRef(0);
+  const lastShapePreviewSentAt = useRef(0);
   const reconnectAttemptRef = useRef(0);
   const restoringRef = useRef(false);
   const bufferedOpsRef = useRef<ShapeOperation[]>([]);
@@ -143,6 +145,15 @@ export function Room() {
   const applyRemoteOp = useCallback((message: Extract<ServerMessage, { type: 'op' }>) => {
     const mergedHlc = hlcRef.current?.update(message.hlc) ?? message.hlc;
     const op = { ...message.op, hlc: mergedHlc, writerId: message.userId };
+    setPreviewPositions((current) => {
+      if (!current[op.shapeId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[op.shapeId];
+      return next;
+    });
 
     if (restoringRef.current) {
       bufferedOpsRef.current.push(op);
@@ -221,6 +232,20 @@ export function Room() {
 
     sendStampedOp(wsClient, stampedOp);
   }, [applyOp, queuePendingOp, sendStampedOp, stampOp, status, wsClient]);
+
+  const sendShapePreview = useCallback((op: ShapeOperation) => {
+    if (status !== 'connected' || !wsClient) {
+      return;
+    }
+
+    wsClient.sendJson({
+      type: 'shape-preview',
+      msgId: msgId(),
+      roomId,
+      userId,
+      op,
+    });
+  }, [roomId, status, userId, wsClient]);
 
   const fitViewportToContent = useCallback(() => {
     const bounds = shapeBounds();
@@ -382,6 +407,17 @@ export function Room() {
           return;
         }
 
+        if (message.type === 'shape-preview') {
+          const { x, y } = message.op.attrs ?? {};
+          if (typeof x === 'number' && typeof y === 'number') {
+            setPreviewPositions((current) => ({
+              ...current,
+              [message.op.shapeId]: { x, y },
+            }));
+          }
+          return;
+        }
+
         if (message.type === 'error') {
           setEvents((current) => [`error: ${message.message}`, ...current].slice(0, 5));
         }
@@ -515,16 +551,19 @@ export function Room() {
     });
   };
 
-  const handleShapeMove = (op: ShapeOperation) => {
+  const handleShapeCommit = (op: ShapeOperation) => {
     const stampedOp = stampOp(op);
+    setPreviewPositions((current) => {
+      if (!current[stampedOp.shapeId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[stampedOp.shapeId];
+      return next;
+    });
     applyOp(stampedOp);
 
-    const now = Date.now();
-    if (now - lastShapeSentAt.current < cursorIntervalMs) {
-      return;
-    }
-
-    lastShapeSentAt.current = now;
     if (status !== 'connected' || !wsClient) {
       const pendingCount = queuePendingOp(stampedOp);
       setEvents((current) => [`queued offline op: ${pendingCount}`, ...current].slice(0, 5));
@@ -532,6 +571,16 @@ export function Room() {
     }
 
     sendStampedOp(wsClient, stampedOp);
+  };
+
+  const handleShapePreview = (op: ShapeOperation) => {
+    const now = Date.now();
+    if (now - lastShapePreviewSentAt.current < shapePreviewIntervalMs) {
+      return;
+    }
+
+    lastShapePreviewSentAt.current = now;
+    sendShapePreview(op);
   };
 
   const handleStyleChange = (attrs: ShapeOperation['attrs']) => {
@@ -630,8 +679,10 @@ export function Room() {
           height={stageSize.height}
           activeTool={activeTool}
           viewport={viewport}
+          previewPositions={previewPositions}
           onViewportChange={setViewport}
-          onShapeOp={handleShapeMove}
+          onShapePreview={handleShapePreview}
+          onShapeCommit={handleShapeCommit}
           onCreateShape={(op) => {
             sendShapeOp(op);
             setActiveTool('select');
