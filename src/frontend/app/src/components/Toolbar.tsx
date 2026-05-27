@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ShapeOperation, ShapeType } from '../types/protocol';
 
 export type ToolMode =
@@ -39,25 +40,52 @@ const tools: Array<{ mode: ToolMode; label: string; icon: string; title: string 
 ];
 
 export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const activeToolConfig = tools.find((tool) => tool.mode === activeTool) ?? tools[0];
+
   return (
-    <aside className="left-toolbar" aria-label="Canvas toolbar">
-      {tools.map((tool) => (
-        <button
-          key={tool.mode}
-          type="button"
-          title={tool.title}
-          className={activeTool === tool.mode ? 'active' : undefined}
-          onClick={() => onSelectTool(tool.mode)}
-        >
-          <span>{tool.icon}</span>
-          <small>{tool.label}</small>
-        </button>
-      ))}
-      <div className="toolbar-divider" />
-      <button type="button" title="Delete" onClick={onDeleteSelected} disabled={!selectedId}>
-        <span>Del</span>
-        <small>Delete</small>
+    <aside className={collapsed ? 'left-toolbar collapsed' : 'left-toolbar'} aria-label="Canvas toolbar">
+      <button
+        type="button"
+        title={collapsed ? 'Expand toolbar' : 'Collapse toolbar'}
+        className="toolbar-collapse-button"
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span>{collapsed ? '+' : '-'}</span>
+        <small>{collapsed ? 'More' : 'Less'}</small>
       </button>
+
+      {collapsed ? (
+        <button
+          type="button"
+          title={activeToolConfig.title}
+          className="active"
+          onClick={() => setCollapsed(false)}
+        >
+          <span>{activeToolConfig.icon}</span>
+          <small>{activeToolConfig.label}</small>
+        </button>
+      ) : (
+        <div className="toolbar-scroll">
+          {tools.map((tool) => (
+            <button
+              key={tool.mode}
+              type="button"
+              title={tool.title}
+              className={activeTool === tool.mode ? 'active' : undefined}
+              onClick={() => onSelectTool(tool.mode)}
+            >
+              <span>{tool.icon}</span>
+              <small>{tool.label}</small>
+            </button>
+          ))}
+          <div className="toolbar-divider" />
+          <button type="button" title="Delete" onClick={onDeleteSelected} disabled={!selectedId}>
+            <span>Del</span>
+            <small>Delete</small>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

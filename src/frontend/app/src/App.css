@@ -254,6 +254,7 @@
   display: grid;
   gap: 8px;
   width: 62px;
+  max-height: calc(100svh - 112px);
   padding: 10px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -261,11 +262,34 @@
   box-shadow: 0 16px 42px rgba(15, 23, 42, 0.14);
 }
 
+.left-toolbar.collapsed {
+  max-height: none;
+}
+
+.toolbar-scroll {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.toolbar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.toolbar-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
 .left-toolbar button {
   display: grid;
   gap: 2px;
   place-items: center;
-  min-height: 52px;
+  min-height: 46px;
   border: 1px solid transparent;
   border-radius: 6px;
   color: #374151;
@@ -294,6 +318,12 @@
 .left-toolbar button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.toolbar-collapse-button {
+  min-height: 38px !important;
+  border-color: #e5e7eb !important;
+  background: #f8fafc !important;
 }
 
 .toolbar-divider {
