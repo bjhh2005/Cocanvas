@@ -252,9 +252,12 @@
   left: 18px;
   top: 86px;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
-  width: 62px;
+  width: 78px;
   max-height: calc(100svh - 112px);
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 10px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -263,17 +266,22 @@
 }
 
 .left-toolbar.collapsed {
+  grid-template-rows: auto auto;
   max-height: none;
+  overflow: visible;
 }
 
 .toolbar-scroll {
   display: grid;
   gap: 8px;
   min-height: 0;
+  max-height: calc(100svh - 176px);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  padding-right: 12px;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 .toolbar-scroll::-webkit-scrollbar {
@@ -289,6 +297,7 @@
   display: grid;
   gap: 2px;
   place-items: center;
+  width: 52px;
   min-height: 46px;
   border: 1px solid transparent;
   border-radius: 6px;
