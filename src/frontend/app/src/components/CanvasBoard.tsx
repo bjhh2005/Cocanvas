@@ -214,8 +214,8 @@ function ShapeNode({ shape, selected, editable, draggable, onSelect, onEdit, onM
     onTap: onSelect,
     onDblClick: editable ? onEdit : undefined,
     onDblTap: editable ? onEdit : undefined,
-    onDragMove: (event: { target: { x: () => number; y: () => number } }) => {
-      onMove(Math.round(event.target.x()), Math.round(event.target.y()));
+    onDragMove: (event: Konva.KonvaEventObject<DragEvent>) => {
+      onMove(Math.round(event.currentTarget.x()), Math.round(event.currentTarget.y()));
     },
   };
 

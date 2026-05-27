@@ -55,6 +55,29 @@ const parseSnapshotPayload = (payload: string) => {
   return {};
 };
 
+const shapeBounds = () => {
+  const shapes = Object.values(useShapeStore.getState().shapes);
+  if (shapes.length === 0) {
+    return null;
+  }
+
+  return shapes.reduce(
+    (bounds, shape) => {
+      const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 220);
+      const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 80);
+      const left = shape.type === 'circle' ? shape.attrs.x - width / 2 : shape.attrs.x;
+      const top = shape.type === 'circle' ? shape.attrs.y - height / 2 : shape.attrs.y;
+      return {
+        minX: Math.min(bounds.minX, left),
+        minY: Math.min(bounds.minY, top),
+        maxX: Math.max(bounds.maxX, left + width),
+        maxY: Math.max(bounds.maxY, top + height),
+      };
+    },
+    { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+  );
+};
+
 export function Room() {
   const { roomId = '' } = useParams();
   const [events, setEvents] = useState<string[]>([]);
@@ -72,6 +95,7 @@ export function Room() {
   const bufferedOpsRef = useRef<ShapeOperation[]>([]);
   const pendingOpsRef = useRef<ShapeOperation[]>([]);
   const restoreGenerationRef = useRef(0);
+  const connectionGenerationRef = useRef(0);
   const setRoomId = useConnectionStore((state) => state.setRoomId);
   const setStatus = useConnectionStore((state) => state.setStatus);
   const setClient = useConnectionStore((state) => state.setClient);
@@ -198,6 +222,28 @@ export function Room() {
     sendStampedOp(wsClient, stampedOp);
   }, [applyOp, queuePendingOp, sendStampedOp, stampOp, status, wsClient]);
 
+  const fitViewportToContent = useCallback(() => {
+    const bounds = shapeBounds();
+    if (!bounds) {
+      setViewport({ scale: 1, x: 0, y: 0 });
+      return;
+    }
+
+    const padding = 160;
+    const contentWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const contentHeight = Math.max(1, bounds.maxY - bounds.minY);
+    const nextScale = Math.min(1.2, Math.max(0.35, Math.min(
+      stageSize.width / (contentWidth + padding),
+      stageSize.height / (contentHeight + padding)
+    )));
+
+    setViewport({
+      scale: nextScale,
+      x: stageSize.width / 2 - ((bounds.minX + bounds.maxX) / 2) * nextScale,
+      y: stageSize.height / 2 - ((bounds.minY + bounds.maxY) / 2) * nextScale,
+    });
+  }, [stageSize.height, stageSize.width]);
+
   useEffect(() => {
     if (!roomId) {
       return;
@@ -225,9 +271,11 @@ export function Room() {
     };
 
     const connect = async (): Promise<void> => {
+      const connectionGeneration = connectionGenerationRef.current + 1;
+      connectionGenerationRef.current = connectionGeneration;
       setRoomId(roomId);
       const room = await getRoom(roomId);
-      if (!active || !room.exists) {
+      if (!active || !room.exists || connectionGenerationRef.current !== connectionGeneration) {
         return;
       }
 
@@ -259,6 +307,7 @@ export function Room() {
                 !active ||
                 client !== connectedClient ||
                 connectedClient?.getStatus() !== 'connected' ||
+                connectionGenerationRef.current !== connectionGeneration ||
                 restoreGenerationRef.current !== restoreGeneration
               ) {
                 return;
@@ -266,6 +315,7 @@ export function Room() {
 
               const replayedOps = replayBufferedOps();
               const flushedOps = flushPendingOps(connectedClient);
+              window.requestAnimationFrame(fitViewportToContent);
               setEvents((current) => [
                 `state restored: ${restoredOps} ops, replayed ${replayedOps}, flushed ${flushedOps}`,
                 ...current,
@@ -276,6 +326,7 @@ export function Room() {
                 !active ||
                 client !== connectedClient ||
                 connectedClient?.getStatus() !== 'connected' ||
+                connectionGenerationRef.current !== connectionGeneration ||
                 restoreGenerationRef.current !== restoreGeneration
               ) {
                 return;
@@ -283,6 +334,7 @@ export function Room() {
 
               const replayedOps = replayBufferedOps();
               const flushedOps = flushPendingOps(connectedClient);
+              window.requestAnimationFrame(fitViewportToContent);
               setEvents((current) => [
                 `restore failed: ${err instanceof Error ? err.message : 'unknown'}, replayed ${replayedOps}, flushed ${flushedOps}`,
                 ...current,
@@ -357,10 +409,11 @@ export function Room() {
       }
       cleanupSubscriptions?.();
       client?.close();
+      connectionGenerationRef.current += 1;
       setClient(null);
       setRoomId(null);
     };
-  }, [addPeer, applyOp, applyRemoteOp, color, displayName, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomId, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
+  }, [addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomId, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -517,6 +570,7 @@ export function Room() {
     try {
       const history = await getRoomHistory(roomId, historyAt);
       const appliedOps = applyHistoryState(history);
+      window.requestAnimationFrame(fitViewportToContent);
       setEvents((current) => [`history loaded: ${appliedOps} ops`, ...current].slice(0, 5));
     } catch (err) {
       setEvents((current) => [`history error: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
