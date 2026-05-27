@@ -51,6 +51,13 @@ type ConnectorDraft = {
   y: number;
 };
 
+type ShapeBounds = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 const minScale = 0.35;
 const maxScale = 2.4;
 
@@ -71,7 +78,6 @@ export function CanvasBoard({
     () => Object.values(shapeMap).sort((a, b) => (a.attrs.zIndex ?? 0) - (b.attrs.zIndex ?? 0)),
     [shapeMap]
   );
-  const shapesById = useMemo(() => Object.fromEntries(shapes.map((shape) => [shape.id, shape])), [shapes]);
   const connectors = useMemo(() => shapes.filter((shape) => shape.type === 'connector'), [shapes]);
   const boardShapes = useMemo(() => shapes.filter((shape) => shape.type !== 'connector'), [shapes]);
   const selectedId = useShapeStore((state) => state.selectedId);
@@ -92,6 +98,27 @@ export function CanvasBoard({
     x: (point.x - viewport.x) / viewport.scale,
     y: (point.y - viewport.y) / viewport.scale,
   });
+
+  const renderedBoardShapes = useMemo(
+    () => boardShapes.map((shape) => {
+      if (dragState?.shapeId === shape.id) {
+        return { ...shape, attrs: { ...shape.attrs, x: dragState.x, y: dragState.y } };
+      }
+
+      const previewPosition = previewPositions[shape.id];
+      if (previewPosition) {
+        return { ...shape, attrs: { ...shape.attrs, ...previewPosition } };
+      }
+
+      return shape;
+    }),
+    [boardShapes, dragState, previewPositions]
+  );
+
+  const renderedShapesById = useMemo(
+    () => Object.fromEntries([...connectors, ...renderedBoardShapes].map((shape) => [shape.id, shape])),
+    [connectors, renderedBoardShapes]
+  );
 
   const createAtPointer = () => {
     const stage = stageRef.current;
@@ -255,7 +282,7 @@ export function CanvasBoard({
     setDragState(null);
   };
 
-  const shapeBounds = (shape: CanvasShape) => {
+  const shapeBounds = (shape: CanvasShape): ShapeBounds => {
     const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140);
     const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90);
     if (shape.type === 'circle') {
@@ -290,8 +317,8 @@ export function CanvasBoard({
   };
 
   const connectorPoints = (connector: CanvasShape) => {
-    const fromShape = connector.attrs.fromShapeId ? shapesById[connector.attrs.fromShapeId] : null;
-    const toShape = connector.attrs.toShapeId ? shapesById[connector.attrs.toShapeId] : null;
+    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
+    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
     if (!fromShape || !toShape) {
       return null;
     }
@@ -312,12 +339,29 @@ export function CanvasBoard({
     });
   };
 
+  const nearestAnchorForPoint = (shape: CanvasShape, point: { x: number; y: number }): AnchorName => {
+    const anchors: AnchorName[] = ['top', 'right', 'bottom', 'left'];
+    return anchors.reduce((nearest, anchor) => {
+      const nearestPoint = anchorPoint(shape, nearest);
+      const currentPoint = anchorPoint(shape, anchor);
+      const nearestDistance = Math.hypot(nearestPoint.x - point.x, nearestPoint.y - point.y);
+      const currentDistance = Math.hypot(currentPoint.x - point.x, currentPoint.y - point.y);
+      return currentDistance < nearestDistance ? anchor : nearest;
+    }, 'top' as AnchorName);
+  };
+
+  const pointDistanceToBounds = (point: { x: number; y: number }, bounds: ShapeBounds) => {
+    const dx = Math.max(bounds.left - point.x, 0, point.x - (bounds.left + bounds.width));
+    const dy = Math.max(bounds.top - point.y, 0, point.y - (bounds.top + bounds.height));
+    return Math.hypot(dx, dy);
+  };
+
   const createConnector = (draft: ConnectorDraft, targetShape: CanvasShape, anchor: AnchorName) => {
     if (draft.fromShapeId === targetShape.id) {
       return;
     }
 
-    const from = shapesById[draft.fromShapeId];
+    const from = renderedShapesById[draft.fromShapeId];
     if (!from) {
       return;
     }
@@ -346,21 +390,22 @@ export function CanvasBoard({
   };
 
   const findConnectorTarget = (point: { x: number; y: number }): { shape: CanvasShape; anchor: AnchorName } | null => {
-    const threshold = 28 / viewport.scale;
+    const threshold = 36 / viewport.scale;
     const candidates: Array<{ shape: CanvasShape; anchor: AnchorName; distance: number }> = [];
 
-    boardShapes.forEach((shape) => {
+    renderedBoardShapes.forEach((shape) => {
       if (connectorDraft?.fromShapeId === shape.id) {
         return;
       }
 
-      (['top', 'right', 'bottom', 'left'] as AnchorName[]).forEach((anchor) => {
-        const anchorPosition = anchorPoint(shape, anchor);
-        const distance = Math.hypot(anchorPosition.x - point.x, anchorPosition.y - point.y);
-        if (distance <= threshold) {
-          candidates.push({ shape, anchor, distance });
-        }
-      });
+      const distance = pointDistanceToBounds(point, shapeBounds(shape));
+      if (distance <= threshold) {
+        candidates.push({
+          shape,
+          anchor: nearestAnchorForPoint(shape, point),
+          distance,
+        });
+      }
     });
 
     const nearest = candidates.sort((left, right) => left.distance - right.distance)[0];
@@ -440,7 +485,7 @@ export function CanvasBoard({
             );
           })}
           {connectorDraft && (() => {
-            const from = shapesById[connectorDraft.fromShapeId];
+            const from = renderedShapesById[connectorDraft.fromShapeId];
             if (!from) {
               return null;
             }
@@ -458,18 +503,11 @@ export function CanvasBoard({
               />
             );
           })()}
-          {boardShapes.map((shape) => {
-            const previewPosition = previewPositions[shape.id];
-            const renderedShape = dragState?.shapeId === shape.id
-              ? { ...shape, attrs: { ...shape.attrs, x: dragState.x, y: dragState.y } }
-              : previewPosition
-                ? { ...shape, attrs: { ...shape.attrs, ...previewPosition } }
-              : shape;
-
+          {renderedBoardShapes.map((shape) => {
             return (
               <ShapeNode
                 key={shape.id}
-                shape={renderedShape}
+                shape={shape}
                 selected={shape.id === selectedId}
                 editable={shape.type === 'text' || shape.type === 'sticky'}
                 onSelect={() => setSelectedId(shape.id)}
