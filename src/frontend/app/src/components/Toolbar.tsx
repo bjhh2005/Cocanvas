@@ -10,7 +10,10 @@ export type ToolMode =
   | 'circle'
   | 'diamond'
   | 'triangle'
-  | 'connector';
+  | 'connector'
+  | 'pen'
+  | 'comment'
+  | 'frame';
 
 type ToolbarProps = {
   activeTool: ToolMode;
@@ -28,8 +31,11 @@ const tools: Array<{ mode: ToolMode; label: string; icon: string; title: string 
   { mode: 'roundedRect', label: 'Round', icon: 'U', title: 'Rounded rectangle' },
   { mode: 'circle', label: 'Circle', icon: 'O', title: 'Circle' },
   { mode: 'diamond', label: 'Diamond', icon: 'D', title: 'Diamond' },
-  { mode: 'triangle', label: 'Tri', icon: '△', title: 'Triangle' },
-  { mode: 'connector', label: 'Line', icon: '→', title: 'Connector' },
+  { mode: 'triangle', label: 'Tri', icon: 'Tri', title: 'Triangle' },
+  { mode: 'connector', label: 'Line', icon: '->', title: 'Connector' },
+  { mode: 'pen', label: 'Pen', icon: 'P', title: 'Pen' },
+  { mode: 'comment', label: 'Note', icon: 'C', title: 'Comment' },
+  { mode: 'frame', label: 'Frame', icon: 'F', title: 'Frame' },
 ];
 
 export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
@@ -118,6 +124,50 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
       shapeId,
       shapeType,
       attrs: { x, y, w: 132, h: 104, fill: '#9fc5e8', stroke: '#1f4e79', strokeWidth: 2, zIndex: Date.now() },
+    };
+  }
+
+  if (shapeType === 'comment') {
+    return {
+      opType: 'create',
+      shapeId,
+      shapeType,
+      attrs: {
+        x,
+        y,
+        w: 220,
+        h: 86,
+        text: 'Comment',
+        fill: '#ffffff',
+        textColor: '#111827',
+        fontSize: 16,
+        stroke: '#f59e0b',
+        strokeWidth: 2,
+        cornerRadius: 8,
+        resolved: false,
+        zIndex: Date.now(),
+      },
+    };
+  }
+
+  if (shapeType === 'frame') {
+    return {
+      opType: 'create',
+      shapeId,
+      shapeType,
+      attrs: {
+        x,
+        y,
+        w: 520,
+        h: 320,
+        text: 'Frame',
+        fill: 'rgba(255,255,255,0.02)',
+        textColor: '#475569',
+        fontSize: 20,
+        stroke: '#64748b',
+        strokeWidth: 2,
+        zIndex: -10,
+      },
     };
   }
 

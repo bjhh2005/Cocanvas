@@ -17,6 +17,7 @@ type CanvasBoardProps = {
   activeTool: ToolMode;
   viewport: ViewportState;
   previewPositions: Record<string, { x: number; y: number }>;
+  penPreviews: Record<string, { points: number[]; stroke?: string; strokeWidth?: number }>;
   onViewportChange: (viewport: ViewportState) => void;
   onShapePreview: (op: ShapeOperation) => void;
   onShapeCommit: (op: ShapeOperation) => void;
@@ -39,7 +40,11 @@ type DragState = {
   offsetY: number;
   x: number;
   y: number;
+  dx: number;
+  dy: number;
   moved: boolean;
+  selectedIds: string[];
+  startPositions: Record<string, { x: number; y: number; shapeType: CanvasShape['type'] }>;
 };
 
 type AnchorName = 'top' | 'right' | 'bottom' | 'left' | 'center';
@@ -58,6 +63,20 @@ type ShapeBounds = {
   height: number;
 };
 
+type SelectionBox = {
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+};
+
+type PenDraft = {
+  shapeId: string;
+  points: number[];
+};
+
+type FrameDraft = SelectionBox;
+
 const minScale = 0.35;
 const maxScale = 2.4;
 
@@ -67,6 +86,7 @@ export function CanvasBoard({
   activeTool,
   viewport,
   previewPositions,
+  penPreviews,
   onViewportChange,
   onShapePreview,
   onShapeCommit,
@@ -81,10 +101,16 @@ export function CanvasBoard({
   const connectors = useMemo(() => shapes.filter((shape) => shape.type === 'connector'), [shapes]);
   const boardShapes = useMemo(() => shapes.filter((shape) => shape.type !== 'connector'), [shapes]);
   const selectedId = useShapeStore((state) => state.selectedId);
+  const selectedIds = useShapeStore((state) => state.selectedIds);
   const setSelectedId = useShapeStore((state) => state.setSelectedId);
+  const setSelectedIds = useShapeStore((state) => state.setSelectedIds);
+  const toggleSelectedId = useShapeStore((state) => state.toggleSelectedId);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [connectorDraft, setConnectorDraft] = useState<ConnectorDraft | null>(null);
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  const [penDraft, setPenDraft] = useState<PenDraft | null>(null);
+  const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
 
   useEffect(() => {
@@ -99,10 +125,23 @@ export function CanvasBoard({
     y: (point.y - viewport.y) / viewport.scale,
   });
 
+  const pointFromStage = () => {
+    const pointer = stageRef.current?.getPointerPosition();
+    return pointer ? screenToCanvas(pointer) : null;
+  };
+
   const renderedBoardShapes = useMemo(
     () => boardShapes.map((shape) => {
-      if (dragState?.shapeId === shape.id) {
-        return { ...shape, attrs: { ...shape.attrs, x: dragState.x, y: dragState.y } };
+      const startPosition = dragState?.startPositions[shape.id];
+      if (startPosition) {
+        return {
+          ...shape,
+          attrs: {
+            ...shape.attrs,
+            x: startPosition.x + dragState.dx,
+            y: startPosition.y + dragState.dy,
+          },
+        };
       }
 
       const previewPosition = previewPositions[shape.id];
@@ -165,6 +204,41 @@ export function CanvasBoard({
     }
 
     setSelectedId(null);
+    const point = pointFromStage();
+    if (!point) {
+      return;
+    }
+
+    if (activeTool === 'select') {
+      setSelectedId(null);
+      setSelectionBox({ startX: point.x, startY: point.y, x: point.x, y: point.y });
+      return;
+    }
+
+    if (activeTool === 'pen') {
+      setSelectedId(null);
+      const shapeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `pen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setPenDraft({ shapeId, points: [Math.round(point.x), Math.round(point.y)] });
+      return;
+    }
+
+    if (activeTool === 'frame') {
+      setSelectedId(null);
+      setFrameDraft({ startX: point.x, startY: point.y, x: point.x, y: point.y });
+      return;
+    }
+
+    if (activeTool === 'comment') {
+      const text = window.prompt('Comment', 'Comment');
+      if (text !== null) {
+        const op = createShapeOp('comment', Math.round(point.x), Math.round(point.y));
+        onCreateShape({ ...op, attrs: { ...op.attrs, text, authorName: undefined, authorId: undefined } });
+      }
+      return;
+    }
+
     if (
       activeTool === 'sticky' ||
       activeTool === 'text' ||
@@ -179,17 +253,32 @@ export function CanvasBoard({
   };
 
   const beginShapeDrag = (shape: CanvasShape, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
-    if (activeTool === 'hand' || activeTool === 'connector') {
+    if (activeTool === 'hand' || activeTool === 'connector' || activeTool === 'pen' || activeTool === 'comment' || activeTool === 'frame') {
       return;
     }
 
     event.cancelBubble = true;
-    const pointer = stageRef.current?.getPointerPosition();
-    if (!pointer) {
+    const point = pointFromStage();
+    if (!point) {
       return;
     }
 
-    const point = screenToCanvas(pointer);
+    const isShiftClick = 'shiftKey' in event.evt && event.evt.shiftKey;
+    if (isShiftClick) {
+      return;
+    }
+
+    const nextSelectedIds = selectedIds.includes(shape.id) ? selectedIds : [shape.id];
+    const startPositions = Object.fromEntries(
+      nextSelectedIds
+        .map((shapeId) => renderedShapesById[shapeId])
+        .filter((selectedShape): selectedShape is CanvasShape => Boolean(selectedShape))
+        .map((selectedShape) => [
+          selectedShape.id,
+          { x: selectedShape.attrs.x, y: selectedShape.attrs.y, shapeType: selectedShape.type },
+        ])
+    );
+
     const nextDragState = {
       shapeId: shape.id,
       shapeType: shape.type,
@@ -197,20 +286,68 @@ export function CanvasBoard({
       offsetY: point.y - shape.attrs.y,
       x: shape.attrs.x,
       y: shape.attrs.y,
+      dx: 0,
+      dy: 0,
       moved: false,
+      selectedIds: nextSelectedIds,
+      startPositions,
     };
 
-    setSelectedId(shape.id);
+    setSelectedIds(nextSelectedIds);
     dragStateRef.current = nextDragState;
     setDragState(nextDragState);
   };
 
   const updateShapeDrag = () => {
+    const point = pointFromStage();
+
     if (connectorDraft) {
-      const pointer = stageRef.current?.getPointerPosition();
-      if (pointer) {
-        const point = screenToCanvas(pointer);
+      if (point) {
         setConnectorDraft((current) => current ? { ...current, x: point.x, y: point.y } : current);
+      }
+      return;
+    }
+
+    if (selectionBox) {
+      if (point) {
+        setSelectionBox((current) => current ? { ...current, x: point.x, y: point.y } : current);
+      }
+      return;
+    }
+
+    if (penDraft) {
+      if (point) {
+        const lastX = penDraft.points[penDraft.points.length - 2];
+        const lastY = penDraft.points[penDraft.points.length - 1];
+        if (Math.hypot(point.x - lastX, point.y - lastY) < 2 / viewport.scale) {
+          return;
+        }
+
+        const nextDraft = {
+          ...penDraft,
+          points: [...penDraft.points, Math.round(point.x), Math.round(point.y)],
+        };
+        setPenDraft(nextDraft);
+        onShapePreview({
+          opType: 'update',
+          shapeId: nextDraft.shapeId,
+          shapeType: 'pen',
+          attrs: {
+            x: 0,
+            y: 0,
+            points: nextDraft.points,
+            fill: 'transparent',
+            stroke: '#111827',
+            strokeWidth: 3,
+          },
+        });
+      }
+      return;
+    }
+
+    if (frameDraft) {
+      if (point) {
+        setFrameDraft((current) => current ? { ...current, x: point.x, y: point.y } : current);
       }
       return;
     }
@@ -220,12 +357,10 @@ export function CanvasBoard({
       return;
     }
 
-    const pointer = stageRef.current?.getPointerPosition();
-    if (!pointer) {
+    if (!point) {
       return;
     }
 
-    const point = screenToCanvas(pointer);
     const x = Math.round(point.x - current.offsetX);
     const y = Math.round(point.y - current.offsetY);
     if (x === current.x && y === current.y) {
@@ -236,6 +371,8 @@ export function CanvasBoard({
       ...current,
       x,
       y,
+      dx: x - (current.startPositions[current.shapeId]?.x ?? current.x),
+      dy: y - (current.startPositions[current.shapeId]?.y ?? current.y),
       moved: true,
     };
 
@@ -251,9 +388,8 @@ export function CanvasBoard({
 
   const commitShapeDrag = () => {
     if (connectorDraft) {
-      const pointer = stageRef.current?.getPointerPosition();
-      if (pointer) {
-        const point = screenToCanvas(pointer);
+      const point = pointFromStage();
+      if (point) {
         const target = findConnectorTarget(point);
         if (target) {
           createConnector(connectorDraft, target.shape, target.anchor);
@@ -264,17 +400,76 @@ export function CanvasBoard({
       return;
     }
 
+    if (selectionBox) {
+      const bounds = normalizedBounds(selectionBox);
+      const nextSelectedIds = renderedBoardShapes
+        .filter((shape) => shape.type !== 'frame')
+        .filter((shape) => boundsIntersect(bounds, shapeBounds(shape)))
+        .map((shape) => shape.id);
+      setSelectedIds(nextSelectedIds);
+      setSelectionBox(null);
+      return;
+    }
+
+    if (penDraft) {
+      if (penDraft.points.length >= 4) {
+        onCreateShape({
+          opType: 'create',
+          shapeId: penDraft.shapeId,
+          shapeType: 'pen',
+          attrs: {
+            x: 0,
+            y: 0,
+            points: penDraft.points,
+            fill: 'transparent',
+            stroke: '#111827',
+            strokeWidth: 3,
+            zIndex: Date.now(),
+          },
+        });
+      }
+      setPenDraft(null);
+      return;
+    }
+
+    if (frameDraft) {
+      const bounds = normalizedBounds(frameDraft);
+      if (bounds.width > 24 && bounds.height > 24) {
+        const op = createShapeOp('frame', Math.round(bounds.left), Math.round(bounds.top));
+        onCreateShape({
+          ...op,
+          attrs: {
+            ...op.attrs,
+            w: Math.round(bounds.width),
+            h: Math.round(bounds.height),
+          },
+        });
+      }
+      setFrameDraft(null);
+      return;
+    }
+
     const current = dragStateRef.current;
     if (!current) {
       return;
     }
 
     if (current.moved) {
-      onShapeCommit({
-        opType: 'update',
-        shapeId: current.shapeId,
-        shapeType: current.shapeType,
-        attrs: { x: current.x, y: current.y },
+      current.selectedIds.forEach((shapeId) => {
+        const startPosition = current.startPositions[shapeId];
+        if (!startPosition) {
+          return;
+        }
+
+        onShapeCommit({
+          opType: 'update',
+          shapeId,
+          shapeType: startPosition.shapeType,
+          attrs: {
+            x: Math.round(startPosition.x + current.dx),
+            y: Math.round(startPosition.y + current.dy),
+          },
+        });
       });
     }
 
@@ -283,6 +478,16 @@ export function CanvasBoard({
   };
 
   const shapeBounds = (shape: CanvasShape): ShapeBounds => {
+    if (shape.type === 'pen' && shape.attrs.points && shape.attrs.points.length >= 2) {
+      const xs = shape.attrs.points.filter((_, index) => index % 2 === 0);
+      const ys = shape.attrs.points.filter((_, index) => index % 2 === 1);
+      const minX = Math.min(...xs) + shape.attrs.x;
+      const minY = Math.min(...ys) + shape.attrs.y;
+      const maxX = Math.max(...xs) + shape.attrs.x;
+      const maxY = Math.max(...ys) + shape.attrs.y;
+      return { left: minX, top: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    }
+
     const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140);
     const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90);
     if (shape.type === 'circle') {
@@ -296,6 +501,20 @@ export function CanvasBoard({
 
     return { left: shape.attrs.x, top: shape.attrs.y, width, height };
   };
+
+  const normalizedBounds = (box: SelectionBox): ShapeBounds => ({
+    left: Math.min(box.startX, box.x),
+    top: Math.min(box.startY, box.y),
+    width: Math.abs(box.x - box.startX),
+    height: Math.abs(box.y - box.startY),
+  });
+
+  const boundsIntersect = (left: ShapeBounds, right: ShapeBounds) => (
+    left.left <= right.left + right.width &&
+    left.left + left.width >= right.left &&
+    left.top <= right.top + right.height &&
+    left.top + left.height >= right.top
+  );
 
   const anchorPoint = (shape: CanvasShape, anchor: AnchorName = 'center') => {
     const bounds = shapeBounds(shape);
@@ -413,7 +632,7 @@ export function CanvasBoard({
   };
 
   const beginEdit = (shape: CanvasShape) => {
-    if (shape.type !== 'text' && shape.type !== 'sticky') {
+    if (shape.type !== 'text' && shape.type !== 'sticky' && shape.type !== 'comment' && shape.type !== 'frame') {
       return;
     }
 
@@ -423,7 +642,7 @@ export function CanvasBoard({
       left: viewport.x + shape.attrs.x * viewport.scale,
       top: viewport.y + shape.attrs.y * viewport.scale,
       width: (shape.attrs.w ?? (shape.type === 'text' ? 260 : 190)) * viewport.scale,
-      height: (shape.attrs.h ?? (shape.type === 'text' ? 72 : 170)) * viewport.scale,
+      height: (shape.attrs.h ?? (shape.type === 'text' ? 72 : shape.type === 'comment' ? 86 : 170)) * viewport.scale,
       value: shape.attrs.text ?? '',
     });
   };
@@ -503,14 +722,74 @@ export function CanvasBoard({
               />
             );
           })()}
+          {penDraft && (
+            <Line
+              points={penDraft.points}
+              stroke="#111827"
+              strokeWidth={3}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.35}
+            />
+          )}
+          {Object.entries(penPreviews).map(([shapeId, preview]) => (
+            <Line
+              key={shapeId}
+              points={preview.points}
+              stroke={preview.stroke ?? '#111827'}
+              strokeWidth={preview.strokeWidth ?? 3}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.35}
+              opacity={0.72}
+              listening={false}
+            />
+          ))}
+          {selectionBox && (() => {
+            const box = normalizedBounds(selectionBox);
+            return (
+              <Rect
+                x={box.left}
+                y={box.top}
+                width={box.width}
+                height={box.height}
+                fill="rgba(37, 99, 235, 0.08)"
+                stroke="#2563eb"
+                strokeWidth={1}
+                dash={[6, 4]}
+              />
+            );
+          })()}
+          {frameDraft && (() => {
+            const box = normalizedBounds(frameDraft);
+            return (
+              <Rect
+                x={box.left}
+                y={box.top}
+                width={box.width}
+                height={box.height}
+                fill="rgba(255, 255, 255, 0.02)"
+                stroke="#64748b"
+                strokeWidth={2}
+                dash={[10, 6]}
+              />
+            );
+          })()}
           {renderedBoardShapes.map((shape) => {
             return (
               <ShapeNode
                 key={shape.id}
                 shape={shape}
-                selected={shape.id === selectedId}
-                editable={shape.type === 'text' || shape.type === 'sticky'}
-                onSelect={() => setSelectedId(shape.id)}
+                selected={selectedIds.includes(shape.id)}
+                editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame'}
+                onSelect={(event) => {
+                  if ('shiftKey' in event.evt && event.evt.shiftKey) {
+                    toggleSelectedId(shape.id);
+                    return;
+                  }
+
+                  setSelectedId(shape.id);
+                }}
                 onEdit={() => beginEdit(shape)}
                 onMoveStart={(event) => beginShapeDrag(shape, event)}
                 onAnchorStart={(anchor, event) => beginConnectorDraft(shape, anchor, event)}
@@ -555,7 +834,7 @@ type ShapeNodeProps = {
   shape: CanvasShape;
   selected: boolean;
   editable: boolean;
-  onSelect: () => void;
+  onSelect: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onEdit: () => void;
   onMoveStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onAnchorStart: (anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
@@ -590,6 +869,89 @@ function ShapeNode({
   const anchorLayer = showAnchors ? (
     <AnchorHandles shape={shape} onAnchorStart={onAnchorStart} />
   ) : null;
+
+  if (shape.type === 'pen') {
+    return (
+      <Line
+        points={shape.attrs.points ?? []}
+        x={shape.attrs.x}
+        y={shape.attrs.y}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        lineCap="round"
+        lineJoin="round"
+        tension={0.35}
+        hitStrokeWidth={14}
+        onClick={onSelect}
+        onTap={onSelect}
+        onMouseDown={onMoveStart}
+        onTouchStart={onMoveStart}
+      />
+    );
+  }
+
+  if (shape.type === 'frame') {
+    const width = shape.attrs.w ?? 520;
+    const height = shape.attrs.h ?? 320;
+    return (
+      <Group {...common}>
+        <Rect
+          width={width}
+          height={height}
+          fill={shape.attrs.fill}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          dash={[12, 7]}
+          cornerRadius={4}
+        />
+        <Text
+          text={shape.attrs.text ?? 'Frame'}
+          x={12}
+          y={-30}
+          width={Math.max(120, width - 24)}
+          height={26}
+          fontSize={shape.attrs.fontSize ?? 20}
+          fontStyle="bold"
+          fill={shape.attrs.textColor ?? '#475569'}
+        />
+        {anchorLayer}
+      </Group>
+    );
+  }
+
+  if (shape.type === 'comment') {
+    const width = shape.attrs.w ?? 220;
+    const height = shape.attrs.h ?? 86;
+    const resolved = shape.attrs.resolved === true;
+    return (
+      <Group {...common} opacity={resolved ? 0.62 : 1}>
+        <Rect
+          width={width}
+          height={height}
+          fill={shape.attrs.fill}
+          stroke={resolved ? '#94a3b8' : stroke}
+          strokeWidth={strokeWidth}
+          cornerRadius={shape.attrs.cornerRadius ?? 8}
+          shadowColor="rgba(15, 23, 42, 0.18)"
+          shadowBlur={selected ? 14 : 8}
+          shadowOffsetY={3}
+          shadowOpacity={0.18}
+        />
+        <Circle x={18} y={18} radius={8} fill={resolved ? '#94a3b8' : '#f59e0b'} />
+        <Text
+          text={shape.attrs.text ?? 'Comment'}
+          x={34}
+          y={11}
+          width={width - 46}
+          height={height - 18}
+          fontSize={shape.attrs.fontSize ?? 16}
+          fill={shape.attrs.textColor ?? '#111827'}
+          lineHeight={1.22}
+        />
+        {anchorLayer}
+      </Group>
+    );
+  }
 
   if (shape.type === 'circle') {
     return (

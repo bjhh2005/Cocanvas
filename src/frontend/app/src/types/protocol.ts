@@ -30,7 +30,10 @@ export type ShapeType =
   | 'triangle'
   | 'text'
   | 'sticky'
-  | 'connector';
+  | 'connector'
+  | 'pen'
+  | 'comment'
+  | 'frame';
 export type OpType = 'create' | 'update' | 'delete';
 
 export type ShapeAttrs = {
@@ -53,6 +56,10 @@ export type ShapeAttrs = {
   fromAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
   toAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
   arrowEnd?: boolean;
+  points?: number[];
+  authorId?: string;
+  authorName?: string;
+  resolved?: boolean;
 };
 
 export type ShapeOperation = {

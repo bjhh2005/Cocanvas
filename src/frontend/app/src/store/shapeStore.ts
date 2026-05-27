@@ -28,9 +28,12 @@ type ShapeState = {
   crdtShapes: Record<string, CrdtShape>;
   shapes: Record<string, CanvasShape>;
   selectedId: string | null;
+  selectedIds: string[];
   applyOp: (op: ShapeOperation) => void;
   replaceWithSnapshot: (snapshot: Record<string, Record<string, unknown>>) => void;
   setSelectedId: (shapeId: string | null) => void;
+  setSelectedIds: (shapeIds: string[]) => void;
+  toggleSelectedId: (shapeId: string) => void;
 };
 
 const shapeSizeDefaults = (shapeType: ShapeType) => {
@@ -46,6 +49,14 @@ const shapeSizeDefaults = (shapeType: ShapeType) => {
     return { w: 140, h: 90 };
   }
 
+  if (shapeType === 'comment') {
+    return { w: 220, h: 86 };
+  }
+
+  if (shapeType === 'frame') {
+    return { w: 520, h: 320 };
+  }
+
   return {};
 };
 
@@ -54,18 +65,36 @@ const defaultsFor = (shapeType: ShapeType): CanvasShape['attrs'] => ({
   y: 120,
   ...shapeSizeDefaults(shapeType),
   radius: shapeType === 'circle' ? 48 : undefined,
-  text: shapeType === 'text' ? 'Text' : shapeType === 'sticky' ? 'Add idea' : undefined,
-  fill: shapeType === 'text' || shapeType === 'connector' ? 'transparent' : shapeType === 'sticky' ? '#ffd966' : '#3498db',
+  text: shapeType === 'text'
+    ? 'Text'
+    : shapeType === 'sticky'
+      ? 'Add idea'
+      : shapeType === 'comment'
+        ? 'Comment'
+        : shapeType === 'frame'
+          ? 'Frame'
+          : undefined,
+  fill: shapeType === 'text' || shapeType === 'connector' || shapeType === 'pen'
+    ? 'transparent'
+    : shapeType === 'sticky'
+      ? '#ffd966'
+      : shapeType === 'comment'
+        ? '#ffffff'
+        : shapeType === 'frame'
+          ? 'rgba(255,255,255,0.02)'
+          : '#3498db',
   textColor: shapeType === 'text' ? '#08060d' : '#202124',
   fontSize: shapeType === 'sticky' ? 22 : 26,
   fontStyle: shapeType === 'text' ? 'bold' : 'normal',
-  cornerRadius: shapeType === 'sticky' ? 10 : shapeType === 'roundedRect' ? 18 : 0,
-  stroke: shapeType === 'text' || shapeType === 'sticky' ? 'transparent' : '#123a32',
-  strokeWidth: shapeType === 'text' ? 0 : 2,
-  zIndex: 0,
+  cornerRadius: shapeType === 'sticky' ? 10 : shapeType === 'roundedRect' ? 18 : shapeType === 'comment' ? 8 : 0,
+  stroke: shapeType === 'text' || shapeType === 'sticky' ? 'transparent' : shapeType === 'pen' ? '#111827' : '#123a32',
+  strokeWidth: shapeType === 'text' ? 0 : shapeType === 'pen' ? 3 : 2,
+  zIndex: shapeType === 'frame' ? -10 : 0,
   fromAnchor: shapeType === 'connector' ? 'right' : undefined,
   toAnchor: shapeType === 'connector' ? 'left' : undefined,
   arrowEnd: shapeType === 'connector' ? true : undefined,
+  points: shapeType === 'pen' ? [] : undefined,
+  resolved: shapeType === 'comment' ? false : undefined,
 });
 
 const shouldApply = (nextHlc = '', nextWriter = '', current?: VersionedValue | CrdtShape['tombstone']) => {
@@ -104,6 +133,7 @@ export const useShapeStore = create<ShapeState>((set) => ({
   crdtShapes: {},
   shapes: {},
   selectedId: null,
+  selectedIds: [],
   applyOp: (op) => set((state) => {
     const hlc = op.hlc ?? '';
     const writerId = op.writerId ?? '';
@@ -124,6 +154,7 @@ export const useShapeStore = create<ShapeState>((set) => ({
         crdtShapes: nextCrdtShapes,
         shapes: toCanvasShapes(nextCrdtShapes),
         selectedId: state.selectedId === op.shapeId ? null : state.selectedId,
+        selectedIds: state.selectedIds.filter((shapeId) => shapeId !== op.shapeId),
       };
     }
 
@@ -211,7 +242,15 @@ export const useShapeStore = create<ShapeState>((set) => ({
       crdtShapes,
       shapes: toCanvasShapes(crdtShapes),
       selectedId: null,
+      selectedIds: [],
     };
   },
-  setSelectedId: (selectedId) => set({ selectedId }),
+  setSelectedId: (selectedId) => set({ selectedId, selectedIds: selectedId ? [selectedId] : [] }),
+  setSelectedIds: (selectedIds) => set({ selectedIds, selectedId: selectedIds[0] ?? null }),
+  toggleSelectedId: (shapeId) => set((state) => {
+    const selectedIds = state.selectedIds.includes(shapeId)
+      ? state.selectedIds.filter((selectedId) => selectedId !== shapeId)
+      : [...state.selectedIds, shapeId];
+    return { selectedIds, selectedId: selectedIds[0] ?? null };
+  }),
 }));
