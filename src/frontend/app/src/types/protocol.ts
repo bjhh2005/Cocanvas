@@ -22,7 +22,15 @@ export type CursorMessage = {
   y: number;
 };
 
-export type ShapeType = 'rect' | 'circle' | 'text' | 'sticky';
+export type ShapeType =
+  | 'rect'
+  | 'roundedRect'
+  | 'circle'
+  | 'diamond'
+  | 'triangle'
+  | 'text'
+  | 'sticky'
+  | 'connector';
 export type OpType = 'create' | 'update' | 'delete';
 
 export type ShapeAttrs = {
@@ -39,6 +47,12 @@ export type ShapeAttrs = {
   fontSize?: number;
   fontStyle?: string;
   cornerRadius?: number;
+  zIndex?: number;
+  fromShapeId?: string;
+  toShapeId?: string;
+  fromAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
+  toAnchor?: 'top' | 'right' | 'bottom' | 'left' | 'center';
+  arrowEnd?: boolean;
 };
 
 export type ShapeOperation = {

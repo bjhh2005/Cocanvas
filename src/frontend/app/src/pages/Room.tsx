@@ -15,6 +15,7 @@ const cursorIntervalMs = 50;
 const shapePreviewIntervalMs = 16;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
 const stickyColors = ['#ffd966', '#9fc5e8', '#b6d7a8', '#ead1dc', '#f9cb9c', '#d9d2e9', '#b7e1cd', '#ffffff'];
+const strokeColors = ['#111827', '#334155', '#1d4ed8', '#047857', '#b45309', '#be123c', '#6d28d9', '#ffffff'];
 
 const msgId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -596,6 +597,40 @@ export function Room() {
     });
   };
 
+  const handleTextInsideChange = () => {
+    if (!selectedShape || selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector') {
+      return;
+    }
+
+    const text = window.prompt('Shape text', selectedShape.attrs.text ?? '');
+    if (text === null) {
+      return;
+    }
+
+    handleStyleChange({ text });
+  };
+
+  const handleLayerChange = (direction: 'front' | 'back' | 'forward' | 'backward') => {
+    if (!selectedShape) {
+      return;
+    }
+
+    const shapes = Object.values(useShapeStore.getState().shapes);
+    const zValues = shapes.map((shape) => shape.attrs.zIndex ?? 0);
+    const current = selectedShape.attrs.zIndex ?? 0;
+    const maxZ = Math.max(0, ...zValues);
+    const minZ = Math.min(0, ...zValues);
+    const nextZ = direction === 'front'
+      ? maxZ + 1
+      : direction === 'back'
+        ? minZ - 1
+        : direction === 'forward'
+          ? current + 1
+          : current - 1;
+
+    handleStyleChange({ zIndex: nextZ });
+  };
+
   const zoomBy = (factor: number) => {
     const nextScale = Math.min(2.4, Math.max(0.35, viewport.scale * factor));
     const center = { x: stageSize.width / 2, y: stageSize.height / 2 };
@@ -667,8 +702,24 @@ export function Room() {
               />
             ))}
           </div>
+          <div className="swatches" aria-label="Stroke color">
+            {strokeColors.map((stroke) => (
+              <button
+                key={stroke}
+                type="button"
+                title={`Stroke ${stroke}`}
+                style={{ background: stroke }}
+                onClick={() => handleStyleChange({ stroke })}
+              />
+            ))}
+          </div>
+          <button type="button" onClick={() => handleStyleChange({ strokeWidth: Math.max(0, (selectedShape.attrs.strokeWidth ?? 2) - 1) })}>S-</button>
+          <button type="button" onClick={() => handleStyleChange({ strokeWidth: Math.min(8, (selectedShape.attrs.strokeWidth ?? 2) + 1) })}>S+</button>
           <button type="button" onClick={() => handleStyleChange({ fontSize: Math.max(14, (selectedShape.attrs.fontSize ?? 22) - 2) })}>A-</button>
           <button type="button" onClick={() => handleStyleChange({ fontSize: Math.min(48, (selectedShape.attrs.fontSize ?? 22) + 2) })}>A+</button>
+          <button type="button" onClick={handleTextInsideChange} disabled={selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector'}>Text</button>
+          <button type="button" onClick={() => handleLayerChange('front')}>Front</button>
+          <button type="button" onClick={() => handleLayerChange('back')}>Back</button>
           <button type="button" onClick={handleDeleteSelected}>Delete</button>
         </section>
       )}

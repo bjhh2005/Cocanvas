@@ -1,6 +1,16 @@
 import type { ShapeOperation, ShapeType } from '../types/protocol';
 
-export type ToolMode = 'select' | 'hand' | 'sticky' | 'text' | 'rect' | 'circle';
+export type ToolMode =
+  | 'select'
+  | 'hand'
+  | 'sticky'
+  | 'text'
+  | 'rect'
+  | 'roundedRect'
+  | 'circle'
+  | 'diamond'
+  | 'triangle'
+  | 'connector';
 
 type ToolbarProps = {
   activeTool: ToolMode;
@@ -15,7 +25,11 @@ const tools: Array<{ mode: ToolMode; label: string; icon: string; title: string 
   { mode: 'sticky', label: 'Sticky', icon: 'N', title: 'Sticky note' },
   { mode: 'text', label: 'Text', icon: 'T', title: 'Text' },
   { mode: 'rect', label: 'Rect', icon: 'R', title: 'Rectangle' },
+  { mode: 'roundedRect', label: 'Round', icon: 'U', title: 'Rounded rectangle' },
   { mode: 'circle', label: 'Circle', icon: 'O', title: 'Circle' },
+  { mode: 'diamond', label: 'Diamond', icon: 'D', title: 'Diamond' },
+  { mode: 'triangle', label: 'Tri', icon: '△', title: 'Triangle' },
+  { mode: 'connector', label: 'Line', icon: '→', title: 'Connector' },
 ];
 
 export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
@@ -52,7 +66,7 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
       opType: 'create',
       shapeId,
       shapeType,
-      attrs: { x, y, radius: 48, fill: '#f59f00', stroke: '#5f3700', strokeWidth: 2 },
+      attrs: { x, y, radius: 48, fill: '#f59f00', stroke: '#5f3700', strokeWidth: 2, zIndex: Date.now() },
     };
   }
 
@@ -71,6 +85,7 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
         fontStyle: 'bold',
         stroke: 'transparent',
         strokeWidth: 0,
+        zIndex: Date.now(),
       },
     };
   }
@@ -92,7 +107,17 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
         stroke: 'transparent',
         strokeWidth: 0,
         cornerRadius: 10,
+        zIndex: Date.now(),
       },
+    };
+  }
+
+  if (shapeType === 'diamond' || shapeType === 'triangle') {
+    return {
+      opType: 'create',
+      shapeId,
+      shapeType,
+      attrs: { x, y, w: 132, h: 104, fill: '#9fc5e8', stroke: '#1f4e79', strokeWidth: 2, zIndex: Date.now() },
     };
   }
 
@@ -100,6 +125,16 @@ export const createShapeOp = (shapeType: ShapeType, x: number, y: number): Shape
     opType: 'create',
     shapeId,
     shapeType,
-    attrs: { x, y, w: 140, h: 90, fill: '#3498db', stroke: '#123a32', strokeWidth: 2 },
+    attrs: {
+      x,
+      y,
+      w: 140,
+      h: 90,
+      fill: shapeType === 'roundedRect' ? '#b7e1cd' : '#3498db',
+      stroke: shapeType === 'roundedRect' ? '#145c4a' : '#123a32',
+      strokeWidth: 2,
+      cornerRadius: shapeType === 'roundedRect' ? 18 : 0,
+      zIndex: Date.now(),
+    },
   };
 };
