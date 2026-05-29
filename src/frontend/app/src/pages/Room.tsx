@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CanvasBoard, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
+import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
 import { HybridLogicalClock } from '../crdt/hlc';
 import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
@@ -10,6 +11,16 @@ import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import { useUserStore } from '../store/userStore';
 import type { ServerMessage, ShapeOperation } from '../types/protocol';
+import {
+  cardPalette,
+  createCardOp,
+  createTemplateOps,
+  downloadTextFile,
+  exportMarkdown,
+  shapeText,
+  shapeToExportRecord,
+  type ProductTemplateId,
+} from '../whiteboard/productBoard';
 
 const cursorIntervalMs = 50;
 const shapePreviewIntervalMs = 16;
@@ -101,6 +112,9 @@ export function Room() {
   const [viewport, setViewport] = useState<ViewportState>({ scale: 1, x: 0, y: 0 });
   const [previewPositions, setPreviewPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [penPreviews, setPenPreviews] = useState<Record<string, { points: number[]; stroke?: string; strokeWidth?: number }>>({});
+  const [productQuery, setProductQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const clipboardRef = useRef<ShapeOperation[]>([]);
   const stageRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
@@ -138,6 +152,23 @@ export function Room() {
     ,
     [selectedIds, shapeMap]
   );
+  const allShapes = useMemo(() => Object.values(shapeMap), [shapeMap]);
+  const visibleShapeIds = useMemo(() => {
+    const hasFilters = productQuery.trim() !== '' || statusFilter !== 'all' || tagFilter !== 'all';
+    if (!hasFilters) {
+      return null;
+    }
+
+    const query = productQuery.trim().toLowerCase();
+    return new Set(allShapes
+      .filter((shape) => {
+        const matchesQuery = query === '' || shapeText(shape).includes(query);
+        const matchesStatus = statusFilter === 'all' || shape.attrs.status === statusFilter;
+        const matchesTag = tagFilter === 'all' || (shape.attrs.tags ?? []).includes(tagFilter);
+        return matchesQuery && matchesStatus && matchesTag;
+      })
+      .map((shape) => shape.id));
+  }, [allShapes, productQuery, statusFilter, tagFilter]);
 
   const applyHistoryState = useCallback((history: HistoryResponse) => {
     const snapshot = parseSnapshotPayload(history.snapshot.payload);
@@ -599,6 +630,59 @@ export function Room() {
     });
   };
 
+  const viewportCenter = useCallback(() => ({
+    x: Math.round((stageSize.width / 2 - viewport.x) / viewport.scale),
+    y: Math.round((stageSize.height / 2 - viewport.y) / viewport.scale),
+  }), [stageSize.height, stageSize.width, viewport.scale, viewport.x, viewport.y]);
+
+  const handleCreateCard = () => {
+    const center = viewportCenter();
+    sendShapeOp(createCardOp(center.x - 130, center.y - 84));
+    setActiveTool('select');
+  };
+
+  const handleTemplateInsert = (templateId: ProductTemplateId) => {
+    const center = viewportCenter();
+    const ops = createTemplateOps(templateId, center.x - 420, center.y - 220);
+    ops.forEach(sendShapeOp);
+    window.requestAnimationFrame(fitViewportToContent);
+    setEvents((current) => [`inserted template: ${templateId}`, ...current].slice(0, 5));
+  };
+
+  const handleProductUpdate = (attrs: ShapeOperation['attrs']) => {
+    if (!selectedShape) {
+      return;
+    }
+
+    const nextAttrs = { ...attrs };
+    if (attrs?.priority) {
+      const palette = cardPalette[attrs.priority];
+      nextAttrs.fill = palette.fill;
+      nextAttrs.stroke = palette.stroke;
+    }
+
+    sendShapeOp({
+      opType: 'update',
+      shapeId: selectedShape.id,
+      shapeType: selectedShape.type,
+      attrs: nextAttrs,
+    });
+  };
+
+  const handleVoteSelected = () => {
+    if (!selectedShape || selectedShape.type !== 'card') {
+      return;
+    }
+
+    const voters = selectedShape.attrs.voters ?? [];
+    const hasVoted = voters.includes(userId);
+    const nextVoters = hasVoted ? voters.filter((voterId) => voterId !== userId) : [...voters, userId];
+    handleProductUpdate({
+      voters: nextVoters,
+      votes: nextVoters.length,
+    });
+  };
+
   const handleTextInsideChange = () => {
     if (!selectedShape || selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector') {
       return;
@@ -701,6 +785,24 @@ export function Room() {
     setEvents((current) => ['exported PNG', ...current].slice(0, 5));
   };
 
+  const exportProductMarkdown = () => {
+    downloadTextFile(
+      `cocanvas-${roomId || 'board'}-summary.md`,
+      exportMarkdown(roomId, allShapes),
+      'text/markdown'
+    );
+    setEvents((current) => ['exported Markdown', ...current].slice(0, 5));
+  };
+
+  const exportProductJson = () => {
+    downloadTextFile(
+      `cocanvas-${roomId || 'board'}-board.json`,
+      JSON.stringify(allShapes.map(shapeToExportRecord), null, 2),
+      'application/json'
+    );
+    setEvents((current) => ['exported JSON', ...current].slice(0, 5));
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -734,6 +836,9 @@ export function Room() {
       }
       if (key === 'n') {
         setActiveTool('sticky');
+      }
+      if (key === 'k') {
+        setActiveTool('card');
       }
       if (key === 't') {
         setActiveTool('text');
@@ -800,6 +905,23 @@ export function Room() {
         onDeleteSelected={handleDeleteSelected}
       />
 
+      <ProductPanel
+        shapes={allShapes}
+        selectedShape={selectedShape}
+        query={productQuery}
+        statusFilter={statusFilter}
+        tagFilter={tagFilter}
+        onQueryChange={setProductQuery}
+        onStatusFilterChange={setStatusFilter}
+        onTagFilterChange={setTagFilter}
+        onCreateCard={handleCreateCard}
+        onTemplateInsert={handleTemplateInsert}
+        onUpdateSelected={handleProductUpdate}
+        onVoteSelected={handleVoteSelected}
+        onExportMarkdown={exportProductMarkdown}
+        onExportJson={exportProductJson}
+      />
+
       {selectedShape && (
         <section className="context-toolbar" aria-label="Selection styles">
           <span>{selectedIds.length > 1 ? `${selectedIds.length} items` : selectedShape.type}</span>
@@ -852,6 +974,7 @@ export function Room() {
           viewport={viewport}
           previewPositions={previewPositions}
           penPreviews={penPreviews}
+          visibleShapeIds={visibleShapeIds}
           onViewportChange={setViewport}
           onShapePreview={handleShapePreview}
           onShapeCommit={handleShapeCommit}
@@ -863,7 +986,7 @@ export function Room() {
         <CursorLayer />
         <div className="board-help">
           <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Double-click sticky/text to edit'}</strong>
-          <span>Wheel to zoom · V select · H hand · N sticky · T text</span>
+          <span>Wheel to zoom · V select · H hand · N sticky · K card</span>
         </div>
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" onClick={() => zoomBy(0.9)}>-</button>

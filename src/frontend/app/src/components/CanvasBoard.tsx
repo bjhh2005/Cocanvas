@@ -1,9 +1,11 @@
 import { Arrow, Circle, Group, Layer, Line, Rect, RegularPolygon, Stage, Text } from 'react-konva';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
-import { createShapeOp, type ToolMode } from './Toolbar';
+import type { ToolMode } from './Toolbar';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import type { ShapeOperation } from '../types/protocol';
+import { priorityLabels, statusLabels } from '../whiteboard/productBoard';
+import { createShapeOp, uniqueId } from '../whiteboard/shapeFactory';
 
 export type ViewportState = {
   scale: number;
@@ -22,6 +24,7 @@ type CanvasBoardProps = {
   onShapePreview: (op: ShapeOperation) => void;
   onShapeCommit: (op: ShapeOperation) => void;
   onCreateShape: (op: ShapeOperation) => void;
+  visibleShapeIds?: Set<string> | null;
 };
 
 type EditingState = {
@@ -91,6 +94,7 @@ export function CanvasBoard({
   onShapePreview,
   onShapeCommit,
   onCreateShape,
+  visibleShapeIds,
 }: CanvasBoardProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
   const shapeMap = useShapeStore((state) => state.shapes);
@@ -114,10 +118,16 @@ export function CanvasBoard({
   const dragStateRef = useRef<DragState | null>(null);
 
   useEffect(() => {
-    if (activeTool === 'hand') {
+    if (activeTool !== 'hand') {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
       dragStateRef.current = null;
       setDragState(null);
-    }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [activeTool]);
 
   const screenToCanvas = (point: { x: number; y: number }) => ({
@@ -168,6 +178,7 @@ export function CanvasBoard({
 
     const point = screenToCanvas(pointer);
     const shapeType = activeTool === 'sticky' ||
+      activeTool === 'card' ||
       activeTool === 'text' ||
       activeTool === 'circle' ||
       activeTool === 'roundedRect' ||
@@ -217,9 +228,7 @@ export function CanvasBoard({
 
     if (activeTool === 'pen') {
       setSelectedId(null);
-      const shapeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `pen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const shapeId = uniqueId('pen');
       setPenDraft({ shapeId, points: [Math.round(point.x), Math.round(point.y)] });
       return;
     }
@@ -241,6 +250,7 @@ export function CanvasBoard({
 
     if (
       activeTool === 'sticky' ||
+      activeTool === 'card' ||
       activeTool === 'text' ||
       activeTool === 'rect' ||
       activeTool === 'roundedRect' ||
@@ -424,7 +434,7 @@ export function CanvasBoard({
             fill: 'transparent',
             stroke: '#111827',
             strokeWidth: 3,
-            zIndex: Date.now(),
+            zIndex: penDraft.points[0] ?? 0,
           },
         });
       }
@@ -588,9 +598,7 @@ export function CanvasBoard({
     const fromPoint = anchorPoint(from, draft.fromAnchor);
     onCreateShape({
       opType: 'create',
-      shapeId: typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `connector-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      shapeId: uniqueId('connector'),
       shapeType: 'connector',
       attrs: {
         x: fromPoint.x,
@@ -632,7 +640,7 @@ export function CanvasBoard({
   };
 
   const beginEdit = (shape: CanvasShape) => {
-    if (shape.type !== 'text' && shape.type !== 'sticky' && shape.type !== 'comment' && shape.type !== 'frame') {
+    if (shape.type !== 'text' && shape.type !== 'sticky' && shape.type !== 'comment' && shape.type !== 'frame' && shape.type !== 'card') {
       return;
     }
 
@@ -642,8 +650,10 @@ export function CanvasBoard({
       left: viewport.x + shape.attrs.x * viewport.scale,
       top: viewport.y + shape.attrs.y * viewport.scale,
       width: (shape.attrs.w ?? (shape.type === 'text' ? 260 : 190)) * viewport.scale,
-      height: (shape.attrs.h ?? (shape.type === 'text' ? 72 : shape.type === 'comment' ? 86 : 170)) * viewport.scale,
-      value: shape.attrs.text ?? '',
+      height: (shape.attrs.h ?? (shape.type === 'text' ? 72 : shape.type === 'comment' ? 86 : shape.type === 'card' ? 168 : 170)) * viewport.scale,
+      value: shape.type === 'card'
+        ? [shape.attrs.title, shape.attrs.body].filter(Boolean).join('\n\n')
+        : shape.attrs.text ?? '',
     });
   };
 
@@ -656,7 +666,12 @@ export function CanvasBoard({
       opType: 'update',
       shapeId: editing.shape.id,
       shapeType: editing.shape.type,
-      attrs: { text: editing.value },
+      attrs: editing.shape.type === 'card'
+        ? {
+          title: editing.value.split(/\n\s*\n/)[0] ?? '',
+          body: editing.value.split(/\n\s*\n/).slice(1).join('\n\n'),
+        }
+        : { text: editing.value },
     });
     setEditing(null);
   };
@@ -781,7 +796,8 @@ export function CanvasBoard({
                 key={shape.id}
                 shape={shape}
                 selected={selectedIds.includes(shape.id)}
-                editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame'}
+                editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame' || shape.type === 'card'}
+                dimmed={visibleShapeIds ? !visibleShapeIds.has(shape.id) : false}
                 onSelect={(event) => {
                   if ('shiftKey' in event.evt && event.evt.shiftKey) {
                     toggleSelectedId(shape.id);
@@ -802,7 +818,7 @@ export function CanvasBoard({
 
       {editing && (
         <textarea
-          className={editing.shape.type === 'sticky' ? 'inline-editor sticky-editor' : 'inline-editor text-editor'}
+          className={editing.shape.type === 'sticky' || editing.shape.type === 'card' ? 'inline-editor sticky-editor' : 'inline-editor text-editor'}
           value={editing.value}
           autoFocus
           style={{
@@ -812,7 +828,7 @@ export function CanvasBoard({
             minHeight: editing.height,
             fontSize: (editing.shape.attrs.fontSize ?? 22) * viewport.scale,
             color: editing.shape.attrs.textColor ?? editing.shape.attrs.fill,
-            background: editing.shape.type === 'sticky' ? editing.shape.attrs.fill : 'white',
+            background: editing.shape.type === 'sticky' || editing.shape.type === 'card' ? editing.shape.attrs.fill : 'white',
           }}
           onChange={(event) => setEditing({ ...editing, value: event.target.value })}
           onBlur={commitEdit}
@@ -839,6 +855,7 @@ type ShapeNodeProps = {
   onMoveStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onAnchorStart: (anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   showAnchors: boolean;
+  dimmed?: boolean;
 };
 
 function ShapeNode({
@@ -850,6 +867,7 @@ function ShapeNode({
   onMoveStart,
   onAnchorStart,
   showAnchors,
+  dimmed = false,
 }: ShapeNodeProps) {
   const common = {
     x: shape.attrs.x,
@@ -861,6 +879,7 @@ function ShapeNode({
     onDblTap: editable ? onEdit : undefined,
     onMouseDown: onMoveStart,
     onTouchStart: onMoveStart,
+    opacity: dimmed ? 0.22 : 1,
   };
 
   const stroke = selected ? '#1f6feb' : shape.attrs.stroke;
@@ -1000,6 +1019,115 @@ function ShapeNode({
           fontSize={shape.attrs.fontSize ?? 22}
           fill={shape.attrs.textColor ?? '#202124'}
           lineHeight={1.16}
+        />
+        {anchorLayer}
+      </Group>
+    );
+  }
+
+  if (shape.type === 'card') {
+    const width = shape.attrs.w ?? 260;
+    const height = shape.attrs.h ?? 168;
+    const tags = shape.attrs.tags ?? [];
+    const priority = shape.attrs.priority ?? 'medium';
+    const status = shape.attrs.status ?? 'idea';
+    const votes = shape.attrs.votes ?? 0;
+    return (
+      <Group {...common}>
+        <Rect
+          width={width}
+          height={height}
+          fill={shape.attrs.fill}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          cornerRadius={shape.attrs.cornerRadius ?? 8}
+          shadowColor="rgba(15, 23, 42, 0.22)"
+          shadowBlur={selected ? 18 : 10}
+          shadowOffsetY={4}
+          shadowOpacity={0.18}
+        />
+        <Rect
+          width={width}
+          height={34}
+          fill="rgba(255,255,255,0.56)"
+          cornerRadius={[8, 8, 0, 0]}
+        />
+        <Text
+          text={statusLabels[status]}
+          x={14}
+          y={10}
+          width={82}
+          height={16}
+          fontSize={12}
+          fontStyle="bold"
+          fill="#0f172a"
+        />
+        <Text
+          text={`+${votes}`}
+          x={width - 54}
+          y={9}
+          width={40}
+          height={17}
+          align="right"
+          fontSize={13}
+          fontStyle="bold"
+          fill="#0f172a"
+        />
+        <Text
+          text={shape.attrs.title ?? 'New idea'}
+          x={14}
+          y={46}
+          width={width - 28}
+          height={28}
+          fontSize={18}
+          fontStyle="bold"
+          fill={shape.attrs.textColor ?? '#111827'}
+          ellipsis
+        />
+        <Text
+          text={shape.attrs.body ?? ''}
+          x={14}
+          y={78}
+          width={width - 28}
+          height={42}
+          fontSize={14}
+          fill="#334155"
+          lineHeight={1.2}
+          ellipsis
+        />
+        {shape.attrs.assignee && (
+          <Text
+            text={shape.attrs.assignee}
+            x={14}
+            y={height - 56}
+            width={width - 28}
+            height={16}
+            fontSize={12}
+            fill="#64748b"
+            ellipsis
+          />
+        )}
+        <Text
+          text={tags.slice(0, 3).map((tag) => `#${tag}`).join('  ')}
+          x={14}
+          y={height - 34}
+          width={width - 110}
+          height={18}
+          fontSize={12}
+          fontStyle="bold"
+          fill="#475569"
+          ellipsis
+        />
+        <Text
+          text={priorityLabels[priority]}
+          x={width - 92}
+          y={height - 35}
+          width={78}
+          height={18}
+          align="right"
+          fontSize={12}
+          fontStyle="bold"
+          fill="#0f172a"
         />
         {anchorLayer}
       </Group>

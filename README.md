@@ -149,41 +149,61 @@ Cocanvas/
 - `src/frontend/app/src/types/protocol.ts`: 前端协议类型。
 - `src/protocol/messages.md`: WebSocket 消息协议。
 
-## 快速启动: Docker Compose
+## 复现指南: Docker Compose
 
-推荐优先使用 Docker Compose。需要先启动 Docker Desktop。
+推荐优先使用 Docker Compose 复现完整分布式链路。需要先启动 Docker Desktop。
+
+当前脚本会自动完成以下准备:
+
+- 预拉基础镜像: `docker/dockerfile:1.7`、`node:22-alpine`、`eclipse-temurin:21-jdk`、`eclipse-temurin:21-jre`、`nginx:alpine`、`redis:7`、`mysql:8`。
+- 如果 Docker Hub 网络抖动但本地已有镜像, 自动继续使用本地缓存。
+- 自动避免把 Gradle 构建强制指向不存在的 `host.docker.internal:7890` 代理。
+- Redis 只在 Docker 内部网络暴露, 不绑定宿主机端口, 避免 Windows 禁止绑定 `6379/6380`。
+- Nginx 默认映射到宿主机 `8088` 端口, 避免常见的 80 端口占用。
+
+### 1. 启动全栈
 
 Windows:
 
 ```powershell
 cd D:\Repositories\Cocanvas
-.\run.bat dev
+.\run.bat up
 ```
 
 Linux/macOS:
 
 ```bash
 cd /path/to/Cocanvas
-./run.sh dev
+./run.sh up
 ```
 
 启动完成后访问:
 
 ```text
-http://localhost/
+http://localhost:8088/
 ```
 
-后台启动:
+如果希望前台查看实时日志, 使用:
 
 ```powershell
-.\run.bat up
-.\run.bat logs
+.\run.bat dev
 ```
 
 查看容器状态:
 
 ```powershell
 .\run.bat ps
+```
+
+正常状态应看到:
+
+```text
+backend1   Up
+backend2   Up
+frontend   Up
+mysql      Up (healthy)
+redis      Up
+nginx      Up, 0.0.0.0:8088->80/tcp
 ```
 
 停止服务:
@@ -198,14 +218,96 @@ http://localhost/
 .\run.bat clean
 ```
 
+只预拉 Docker 基础镜像:
+
+```powershell
+.\run.bat pull-images
+```
+
 Docker Compose 会启动以下服务:
 
-- `nginx`: 统一入口, 监听 `80`。
+- `nginx`: 统一入口, 默认监听宿主机 `8088`。
 - `frontend`: Vite 前端。
 - `backend1`: Spring Boot 后端节点 1。
 - `backend2`: Spring Boot 后端节点 2。
-- `redis`: Redis Pub/Sub 与节点心跳。
+- `redis`: Redis Pub/Sub 与节点心跳, 仅暴露在 Docker 内部网络。
 - `mysql`: 操作日志与 snapshot 持久化。
+
+### 2. 验证 HTTP 链路
+
+首页:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://localhost:8088/
+```
+
+健康检查:
+
+```powershell
+Invoke-RestMethod http://localhost:8088/api/health
+```
+
+预期返回:
+
+```json
+{ "status": "ok" }
+```
+
+### 3. 复现多人协作
+
+1. 打开 `http://localhost:8088/`。
+2. 点击 `Create room` 创建房间。
+3. 复制当前 `/room/<roomId>` 地址。
+4. 打开第二个浏览器窗口或无痕窗口, 访问同一个房间地址。
+5. 在任意窗口移动鼠标, 另一个窗口应看到远端光标。
+6. 创建 Sticky、Text、Rect、Circle 或其他形状。
+7. 拖动对象, 另一个窗口应实时同步位置。
+8. 选中对象, 点击 `Delete` 或按 Delete/Backspace, 另一个窗口应同步删除。
+
+### 4. 复现分布式路由
+
+打开浏览器开发者工具, 在 Network 的 WebSocket 连接里查看 URL。正常情况下应看到类似:
+
+```text
+ws://localhost:8088/ws/backend1/collab
+ws://localhost:8088/ws/backend2/collab
+```
+
+这说明房间路由已经落到具体后端节点。
+
+也可以查看节点接口:
+
+```powershell
+Invoke-RestMethod http://localhost:8088/api/cluster/nodes
+```
+
+### 5. 复现故障切换
+
+先确认当前浏览器连的是 `backend1` 还是 `backend2`。如果当前 WebSocket 连的是 `backend1`, 执行:
+
+```powershell
+docker compose stop backend1
+```
+
+如果当前 WebSocket 连的是 `backend2`, 执行:
+
+```powershell
+docker compose stop backend2
+```
+
+预期现象:
+
+- 前端连接短暂断开。
+- 稍等后自动重连。
+- 前端重新查询房间路由, 连接仍然存活的后端节点。
+- 画布通过历史恢复到当前状态。
+- 后续编辑可以继续同步。
+
+恢复后端:
+
+```powershell
+docker compose start backend1 backend2
+```
 
 ## 备用启动: 本地开发模式
 
@@ -257,7 +359,7 @@ http://127.0.0.1:5173/
 
 ### 基础协作
 
-1. 打开首页, 点击 `Create room` 创建房间。
+1. 打开 `http://localhost:8088/`, 点击 `Create room` 创建房间。
 2. 复制当前 `/room/<roomId>` 地址。
 3. 打开第二个浏览器窗口或无痕窗口, 访问同一个房间地址。
 4. 在任意窗口移动鼠标, 另一个窗口应看到远端光标。
@@ -397,7 +499,7 @@ docker compose up -d backend1 backend2
 
 ## 常见问题
 
-### 1. 访问 localhost 显示 ERR_CONNECTION_REFUSED
+### 1. 访问 localhost:8088 显示 ERR_CONNECTION_REFUSED
 
 通常是服务没有启动。先检查 Docker Desktop 是否已启动, 再运行:
 
@@ -419,20 +521,19 @@ docker compose up -d backend1 backend2
 - 使用上面的本地开发模式。
 - 如果本机已有相近镜像, 临时调整 `docker-compose.yml` 中的镜像 tag。
 
-### 3. 80 端口被占用
+### 3. 8088 端口被占用
 
-修改 `docker-compose.yml`:
+项目默认使用宿主机 `8088` 作为 Nginx 入口。如果 8088 被占用, 可以临时指定其它端口:
 
-```yaml
-nginx:
-  ports:
-    - "8088:80"
+```powershell
+$env:NGINX_HOST_PORT='8090'
+.\run.bat up
 ```
 
 然后访问:
 
 ```text
-http://localhost:8088/
+http://localhost:8090/
 ```
 
 ### 4. 后端 8080 被占用

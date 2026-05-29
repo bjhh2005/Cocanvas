@@ -33,7 +33,8 @@ export type ShapeType =
   | 'connector'
   | 'pen'
   | 'comment'
-  | 'frame';
+  | 'frame'
+  | 'card';
 export type OpType = 'create' | 'update' | 'delete';
 
 export type ShapeAttrs = {
@@ -60,6 +61,14 @@ export type ShapeAttrs = {
   authorId?: string;
   authorName?: string;
   resolved?: boolean;
+  title?: string;
+  body?: string;
+  tags?: string[];
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  status?: 'idea' | 'todo' | 'doing' | 'done' | 'blocked';
+  assignee?: string;
+  votes?: number;
+  voters?: string[];
 };
 
 export type ShapeOperation = {

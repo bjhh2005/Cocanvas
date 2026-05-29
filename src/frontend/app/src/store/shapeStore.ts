@@ -53,6 +53,10 @@ const shapeSizeDefaults = (shapeType: ShapeType) => {
     return { w: 220, h: 86 };
   }
 
+  if (shapeType === 'card') {
+    return { w: 260, h: 168 };
+  }
+
   if (shapeType === 'frame') {
     return { w: 520, h: 320 };
   }
@@ -74,6 +78,14 @@ const defaultsFor = (shapeType: ShapeType): CanvasShape['attrs'] => ({
         : shapeType === 'frame'
           ? 'Frame'
           : undefined,
+  title: shapeType === 'card' ? 'New idea' : undefined,
+  body: shapeType === 'card' ? 'Describe the signal, decision, or next step.' : undefined,
+  tags: shapeType === 'card' ? ['Insight'] : undefined,
+  priority: shapeType === 'card' ? 'medium' : undefined,
+  status: shapeType === 'card' ? 'idea' : undefined,
+  assignee: shapeType === 'card' ? '' : undefined,
+  votes: shapeType === 'card' ? 0 : undefined,
+  voters: shapeType === 'card' ? [] : undefined,
   fill: shapeType === 'text' || shapeType === 'connector' || shapeType === 'pen'
     ? 'transparent'
     : shapeType === 'sticky'
@@ -82,11 +94,13 @@ const defaultsFor = (shapeType: ShapeType): CanvasShape['attrs'] => ({
         ? '#ffffff'
         : shapeType === 'frame'
           ? 'rgba(255,255,255,0.02)'
-          : '#3498db',
+          : shapeType === 'card'
+            ? '#dcfce7'
+            : '#3498db',
   textColor: shapeType === 'text' ? '#08060d' : '#202124',
   fontSize: shapeType === 'sticky' ? 22 : 26,
   fontStyle: shapeType === 'text' ? 'bold' : 'normal',
-  cornerRadius: shapeType === 'sticky' ? 10 : shapeType === 'roundedRect' ? 18 : shapeType === 'comment' ? 8 : 0,
+  cornerRadius: shapeType === 'sticky' ? 10 : shapeType === 'roundedRect' ? 18 : shapeType === 'comment' || shapeType === 'card' ? 8 : 0,
   stroke: shapeType === 'text' || shapeType === 'sticky' ? 'transparent' : shapeType === 'pen' ? '#111827' : '#123a32',
   strokeWidth: shapeType === 'text' ? 0 : shapeType === 'pen' ? 3 : 2,
   zIndex: shapeType === 'frame' ? -10 : 0,
