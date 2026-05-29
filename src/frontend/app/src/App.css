@@ -174,6 +174,12 @@
   padding: 8px 10px;
 }
 
+.identity-card.compact {
+  min-width: 240px;
+  min-height: 42px;
+  padding: 7px 10px;
+}
+
 .identity-card input,
 .room-identity input {
   min-width: 0;
@@ -187,6 +193,10 @@
 
 .identity-card input {
   width: 118px;
+}
+
+.identity-card.compact input {
+  width: 100px;
 }
 
 .room-identity input {
@@ -215,6 +225,45 @@
 
 .color-swatches button.active {
   box-shadow: 0 0 0 2px #172033;
+}
+
+.custom-color {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px dashed #94a3b8;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, #ef4444, #f59e0b, #10b981, #3b82f6, #8b5cf6);
+  cursor: pointer;
+}
+
+.color-swatches.compact .custom-color {
+  width: 17px;
+  height: 17px;
+}
+
+.custom-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.refresh-stack {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+}
+
+.refresh-stack > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .ghost-action,
@@ -1542,12 +1591,18 @@ kbd {
     align-items: stretch;
   }
 
-  .identity-card {
+  .identity-card,
+  .identity-card.compact {
     min-width: 0;
   }
 
-  .identity-card input {
+  .identity-card input,
+  .identity-card.compact input {
     width: 100%;
+  }
+
+  .refresh-stack {
+    justify-items: stretch;
   }
 
   .room-badges {

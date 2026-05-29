@@ -16,7 +16,6 @@ import {
   MousePointer2,
   Mic,
   MicOff,
-  UserRound,
   Unlink2,
   Scissors,
   Trash2,
@@ -27,12 +26,13 @@ import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '..
 import { CursorLayer } from '../components/CursorLayer';
 import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
+import { UserIdentityEditor } from '../components/UserIdentityEditor';
 import { HybridLogicalClock } from '../crdt/hlc';
 import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
-import { useUserStore, userPalette } from '../store/userStore';
+import { useUserStore } from '../store/userStore';
 import type { ServerMessage, ShapeOperation, ShapeType } from '../types/protocol';
 import {
   cardPalette,
@@ -185,8 +185,6 @@ export function Room() {
   const userId = useUserStore((state) => state.userId);
   const displayName = useUserStore((state) => state.displayName);
   const color = useUserStore((state) => state.color);
-  const setDisplayName = useUserStore((state) => state.setDisplayName);
-  const setColor = useUserStore((state) => state.setColor);
   const setPeers = useUserStore((state) => state.setPeers);
   const addPeer = useUserStore((state) => state.addPeer);
   const removePeer = useUserStore((state) => state.removePeer);
@@ -1272,26 +1270,7 @@ export function Room() {
           <h1>{roomName || 'Cocanvas board'}</h1>
           <p>Room {roomId}</p>
         </div>
-        <section className="room-identity" aria-label="我的协作身份">
-          <UserRound size={15} aria-hidden />
-          <input
-            value={displayName}
-            aria-label="协作显示名称"
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-          <div className="color-swatches compact" aria-label="选择协作颜色">
-            {userPalette.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={item === color ? 'active' : ''}
-                title={item}
-                style={{ background: item }}
-                onClick={() => setColor(item)}
-              />
-            ))}
-          </div>
-        </section>
+        <UserIdentityEditor compact />
         <div className="room-stats">
           <span>WS: <strong>{status}</strong></span>
           <span>Peers: <strong>{remoteCount}</strong></span>

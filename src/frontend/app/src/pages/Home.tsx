@@ -12,7 +12,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Users,
-  UserRound,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -22,7 +21,7 @@ import {
   updateRoom,
   type RoomSummary,
 } from '../network/api';
-import { useUserStore, userPalette } from '../store/userStore';
+import { UserIdentityEditor } from '../components/UserIdentityEditor';
 
 type RoomFormState = {
   roomId: string;
@@ -63,10 +62,6 @@ const permissionLabel = (mode: string) => {
 
 export function Home() {
   const navigate = useNavigate();
-  const displayName = useUserStore((state) => state.displayName);
-  const color = useUserStore((state) => state.color);
-  const setDisplayName = useUserStore((state) => state.setDisplayName);
-  const setColor = useUserStore((state) => state.setColor);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [form, setForm] = useState<RoomFormState>(emptyForm);
   const [joinRoomId, setJoinRoomId] = useState('');
@@ -75,6 +70,7 @@ export function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
 
   const editingRoom = useMemo(
     () => editingRoomId ? rooms.find((room) => room.roomId === editingRoomId) ?? null : null,
@@ -86,6 +82,7 @@ export function Home() {
     setError(null);
     try {
       setRooms(await listRooms());
+      setLastRefreshedAt(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载房间失败');
     } finally {
@@ -184,30 +181,14 @@ export function Home() {
           <p>把白板当成会议空间来管理：房间号、密码、权限、语音入口和历史房间都在这里。</p>
         </div>
         <div className="console-actions">
-          <section className="identity-card" aria-label="我的协作身份">
-            <UserRound size={17} aria-hidden />
-            <input
-              value={displayName}
-              aria-label="协作显示名称"
-              onChange={(event) => setDisplayName(event.target.value)}
-            />
-            <div className="color-swatches" aria-label="选择协作颜色">
-              {userPalette.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={item === color ? 'active' : ''}
-                  title={item}
-                  style={{ background: item }}
-                  onClick={() => setColor(item)}
-                />
-              ))}
-            </div>
-          </section>
-          <button type="button" className="ghost-action" onClick={loadRooms} disabled={loadingRooms}>
-            {loadingRooms ? <LoaderCircle size={16} className="spin-icon" aria-hidden /> : <RefreshCw size={16} aria-hidden />}
-            <span>刷新</span>
-          </button>
+          <UserIdentityEditor />
+          <div className="refresh-stack">
+            <button type="button" className="ghost-action" onClick={() => void loadRooms()} disabled={loadingRooms}>
+              {loadingRooms ? <LoaderCircle size={16} className="spin-icon" aria-hidden /> : <RefreshCw size={16} aria-hidden />}
+              <span>{loadingRooms ? '刷新中' : '刷新'}</span>
+            </button>
+            <span>{lastRefreshedAt ? `上次 ${formatTime(lastRefreshedAt)}` : '尚未刷新'}</span>
+          </div>
         </div>
       </header>
 
