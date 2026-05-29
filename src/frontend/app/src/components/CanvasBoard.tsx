@@ -105,8 +105,15 @@ type ResizeDraft = {
   radius?: number;
 };
 
+type PanDraft = {
+  startPointerX: number;
+  startPointerY: number;
+  startViewport: ViewportState;
+};
+
 const minScale = 0.35;
 const maxScale = 2.4;
+const gridSize = 42;
 
 export function CanvasBoard({
   width,
@@ -144,6 +151,7 @@ export function CanvasBoard({
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const [resizeDraft, setResizeDraft] = useState<ResizeDraft | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const panDraftRef = useRef<PanDraft | null>(null);
   const suppressNextSelectRef = useRef(false);
 
   useEffect(() => {
@@ -154,6 +162,7 @@ export function CanvasBoard({
     const frameId = window.requestAnimationFrame(() => {
       dragStateRef.current = null;
       setDragState(null);
+      panDraftRef.current = null;
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -211,6 +220,28 @@ export function CanvasBoard({
     [connectors, renderedBoardShapes]
   );
 
+  const gridLines = useMemo(() => {
+    const left = -viewport.x / viewport.scale;
+    const top = -viewport.y / viewport.scale;
+    const right = left + width / viewport.scale;
+    const bottom = top + height / viewport.scale;
+    const startX = Math.floor(left / gridSize) * gridSize;
+    const endX = Math.ceil(right / gridSize) * gridSize;
+    const startY = Math.floor(top / gridSize) * gridSize;
+    const endY = Math.ceil(bottom / gridSize) * gridSize;
+    const lines: Array<{ key: string; points: number[]; major: boolean }> = [];
+
+    for (let x = startX; x <= endX; x += gridSize) {
+      lines.push({ key: `v-${x}`, points: [x, startY, x, endY], major: x % (gridSize * 5) === 0 });
+    }
+
+    for (let y = startY; y <= endY; y += gridSize) {
+      lines.push({ key: `h-${y}`, points: [startX, y, endX, y], major: y % (gridSize * 5) === 0 });
+    }
+
+    return lines;
+  }, [height, viewport.scale, viewport.x, viewport.y, width]);
+
   const createAtPointer = () => {
     const stage = stageRef.current;
     const pointer = stage?.getPointerPosition();
@@ -256,11 +287,24 @@ export function CanvasBoard({
       return;
     }
 
-    applySelection([], { source: 'stage' });
     const point = pointFromStage();
     if (!point) {
       return;
     }
+
+    if (activeTool === 'hand') {
+      const pointer = stageRef.current?.getPointerPosition();
+      if (pointer) {
+        panDraftRef.current = {
+          startPointerX: pointer.x,
+          startPointerY: pointer.y,
+          startViewport: viewport,
+        };
+      }
+      return;
+    }
+
+    applySelection([], { source: 'stage' });
 
     if (activeTool === 'select') {
       setSelectionBox({ startX: point.x, startY: point.y, x: point.x, y: point.y });
@@ -357,6 +401,19 @@ export function CanvasBoard({
   };
 
   const updateShapeDrag = () => {
+    const panDraft = panDraftRef.current;
+    if (panDraft) {
+      const pointer = stageRef.current?.getPointerPosition();
+      if (pointer) {
+        onViewportChange({
+          ...panDraft.startViewport,
+          x: panDraft.startViewport.x + pointer.x - panDraft.startPointerX,
+          y: panDraft.startViewport.y + pointer.y - panDraft.startPointerY,
+        });
+      }
+      return;
+    }
+
     const point = pointFromStage();
 
     if (resizeDraft) {
@@ -481,6 +538,11 @@ export function CanvasBoard({
   };
 
   const commitShapeDrag = () => {
+    if (panDraftRef.current) {
+      panDraftRef.current = null;
+      return;
+    }
+
     if (connectorDraft) {
       const point = pointFromStage();
       if (point) {
@@ -850,12 +912,6 @@ export function CanvasBoard({
         ref={stageRef}
         width={width}
         height={height}
-        x={viewport.x}
-        y={viewport.y}
-        scaleX={viewport.scale}
-        scaleY={viewport.scale}
-        draggable={activeTool === 'hand'}
-        onDragEnd={(event) => onViewportChange({ ...viewport, x: event.target.x(), y: event.target.y() })}
         onWheel={handleWheel}
         onMouseDown={handleStageMouseDown}
         onMouseMove={updateShapeDrag}
@@ -868,7 +924,16 @@ export function CanvasBoard({
         onTouchMove={updateShapeDrag}
         onTouchEnd={commitShapeDrag}
       >
-        <Layer>
+        <Layer x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
+          {gridLines.map((line) => (
+            <Line
+              key={line.key}
+              points={line.points}
+              stroke={line.major ? 'rgba(20, 92, 74, 0.16)' : 'rgba(20, 92, 74, 0.08)'}
+              strokeWidth={line.major ? 1.2 / viewport.scale : 1 / viewport.scale}
+              listening={false}
+            />
+          ))}
           {connectors.map((connector) => {
             const points = connectorPoints(connector);
             if (!points) {

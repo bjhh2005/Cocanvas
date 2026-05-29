@@ -72,6 +72,25 @@ const isDraggableCreateTool = (tool: string): tool is Extract<ShapeType, ToolMod
   draggableCreateTools.has(tool as ToolMode)
 );
 
+type HistoryEntry = {
+  undo: ShapeOperation[];
+  redo: ShapeOperation[];
+};
+
+const cloneShapeAttrs = (attrs: ShapeAttrs = {}): ShapeAttrs => ({
+  ...attrs,
+  tags: attrs.tags ? [...attrs.tags] : attrs.tags,
+  voters: attrs.voters ? [...attrs.voters] : attrs.voters,
+  points: attrs.points ? [...attrs.points] : attrs.points,
+});
+
+const cloneOpForHistory = (op: ShapeOperation): ShapeOperation => ({
+  opType: op.opType,
+  shapeId: op.shapeId,
+  shapeType: op.shapeType,
+  attrs: cloneShapeAttrs(op.attrs),
+});
+
 const msgId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -160,7 +179,10 @@ export function Room() {
   const [roomVoiceEnabled, setRoomVoiceEnabled] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [stageSize, setStageSize] = useState({ width: 960, height: 520 });
+  const [stageSize, setStageSize] = useState(() => ({
+    width: typeof window === 'undefined' ? 960 : window.innerWidth,
+    height: typeof window === 'undefined' ? 520 : Math.max(320, window.innerHeight - 86),
+  }));
   const [activeTool, setActiveTool] = useState<ToolMode>('select');
   const [viewport, setViewport] = useState<ViewportState>({ scale: 1, x: 0, y: 0 });
   const [previewPositions, setPreviewPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -174,8 +196,13 @@ export function Room() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const clipboardRef = useRef<ShapeOperation[]>([]);
+  const undoStackRef = useRef<HistoryEntry[]>([]);
+  const redoStackRef = useRef<HistoryEntry[]>([]);
+  const historyBatchRef = useRef<HistoryEntry | null>(null);
+  const historyReplayRef = useRef(false);
   const lastCanvasPointRef = useRef<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
+  const topbarRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
   const lastShapePreviewSentAt = useRef(0);
@@ -334,6 +361,80 @@ export function Room() {
     });
   }, [roomId, userId]);
 
+  const buildInverseOp = useCallback((op: ShapeOperation): ShapeOperation | null => {
+    const existing = useShapeStore.getState().shapes[op.shapeId];
+
+    if (op.opType === 'create') {
+      return {
+        opType: 'delete',
+        shapeId: op.shapeId,
+        shapeType: op.shapeType,
+      };
+    }
+
+    if (op.opType === 'delete') {
+      if (!existing) {
+        return null;
+      }
+
+      return {
+        opType: 'create',
+        shapeId: existing.id,
+        shapeType: existing.type,
+        attrs: cloneShapeAttrs(existing.attrs),
+      };
+    }
+
+    if (!existing) {
+      return null;
+    }
+
+    const previousAttrs = Object.fromEntries(
+      Object.keys(op.attrs ?? {}).map((key) => [
+        key,
+        cloneShapeAttrs(existing.attrs)[key as keyof ShapeAttrs],
+      ])
+    ) as ShapeAttrs;
+
+    return {
+      opType: 'update',
+      shapeId: op.shapeId,
+      shapeType: op.shapeType,
+      attrs: previousAttrs,
+    };
+  }, []);
+
+  const recordHistoryOp = useCallback((redo: ShapeOperation, undo: ShapeOperation | null) => {
+    if (!undo || historyReplayRef.current) {
+      return;
+    }
+
+    const entry = {
+      undo: [cloneOpForHistory(undo)],
+      redo: [cloneOpForHistory(redo)],
+    };
+
+    if (historyBatchRef.current) {
+      historyBatchRef.current.undo.unshift(...entry.undo);
+      historyBatchRef.current.redo.push(...entry.redo);
+      return;
+    }
+
+    undoStackRef.current.push(entry);
+    redoStackRef.current = [];
+  }, []);
+
+  const runHistoryBatch = useCallback((fn: () => void) => {
+    historyBatchRef.current = { undo: [], redo: [] };
+    fn();
+    const entry = historyBatchRef.current;
+    historyBatchRef.current = null;
+    if (entry && entry.undo.length > 0 && entry.redo.length > 0 && !historyReplayRef.current) {
+      undoStackRef.current.push(entry);
+      redoStackRef.current = [];
+    }
+  }, []);
+
   const flushPendingOps = useCallback((client: WSClient) => {
     const pendingOps = pendingOpsRef.current;
     pendingOpsRef.current = [];
@@ -373,6 +474,8 @@ export function Room() {
   }, []);
 
   const sendShapeOp = useCallback((op: ShapeOperation) => {
+    const inverseOp = buildInverseOp(op);
+    recordHistoryOp(op, inverseOp);
     const stampedOp = stampOp(op);
     applyOp(stampedOp);
     if (status !== 'connected' || !wsClient) {
@@ -382,7 +485,37 @@ export function Room() {
     }
 
     sendStampedOp(wsClient, stampedOp);
-  }, [applyOp, queuePendingOp, sendStampedOp, stampOp, status, wsClient]);
+  }, [applyOp, buildInverseOp, queuePendingOp, recordHistoryOp, sendStampedOp, stampOp, status, wsClient]);
+
+  const sendHistoryOps = useCallback((ops: ShapeOperation[]) => {
+    historyReplayRef.current = true;
+    ops.forEach(sendShapeOp);
+    historyReplayRef.current = false;
+  }, [sendShapeOp]);
+
+  const undoLastAction = useCallback(() => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) {
+      setEvents((current) => ['nothing to undo', ...current].slice(0, 5));
+      return;
+    }
+
+    sendHistoryOps(entry.undo);
+    redoStackRef.current.push(entry);
+    setEvents((current) => [`undo ${entry.undo.length} op(s)`, ...current].slice(0, 5));
+  }, [sendHistoryOps]);
+
+  const redoLastAction = useCallback(() => {
+    const entry = redoStackRef.current.pop();
+    if (!entry) {
+      setEvents((current) => ['nothing to redo', ...current].slice(0, 5));
+      return;
+    }
+
+    sendHistoryOps(entry.redo);
+    undoStackRef.current.push(entry);
+    setEvents((current) => [`redo ${entry.redo.length} op(s)`, ...current].slice(0, 5));
+  }, [sendHistoryOps]);
 
   const sendShapePreview = useCallback((op: ShapeOperation) => {
     if (status !== 'connected' || !wsClient) {
@@ -629,23 +762,43 @@ export function Room() {
   }, [addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
 
   useEffect(() => {
+    if (roomAccessState !== 'ready') {
+      return undefined;
+    }
+
     const element = stageRef.current;
     if (!element) {
-      return;
+      return undefined;
     }
 
     const updateStageSize = () => {
+      const topbarHeight = Math.ceil(topbarRef.current?.getBoundingClientRect().height ?? 86);
+      const nextWidth = Math.ceil(window.innerWidth);
+      const nextHeight = Math.max(1, window.innerHeight - topbarHeight);
+      if (nextWidth < 2 || nextHeight < 2) {
+        return;
+      }
+      element.style.setProperty('--board-top', `${topbarHeight}px`);
       setStageSize({
-        width: element.clientWidth,
-        height: element.clientHeight,
+        width: nextWidth,
+        height: nextHeight,
       });
     };
 
     updateStageSize();
     const observer = new ResizeObserver(updateStageSize);
     observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+    if (topbarRef.current) {
+      observer.observe(topbarRef.current);
+    }
+    window.addEventListener('resize', updateStageSize);
+    const frameId = window.requestAnimationFrame(updateStageSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateStageSize);
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [roomAccessState]);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     const point = toRelativePoint(event);
@@ -721,15 +874,17 @@ export function Room() {
       return;
     }
 
-    shapesToDelete.forEach((shape) => {
-      sendShapeOp({
-        opType: 'delete',
-        shapeId: shape.id,
-        shapeType: shape.type,
+    runHistoryBatch(() => {
+      shapesToDelete.forEach((shape) => {
+        sendShapeOp({
+          opType: 'delete',
+          shapeId: shape.id,
+          shapeType: shape.type,
+        });
       });
     });
     setActiveGroupId(null);
-  }, [selectedShape, selectedShapes, sendShapeOp]);
+  }, [runHistoryBatch, selectedShape, selectedShapes, sendShapeOp]);
 
   const getGroupMemberIds = useCallback((groupId: string) => (
     Object.values(shapeMap)
@@ -752,12 +907,21 @@ export function Room() {
       setActiveGroupId(null);
       const nextIds = [...currentIds];
       shapeIds.forEach((shapeId) => {
-        const existingIndex = nextIds.indexOf(shapeId);
-        if (existingIndex >= 0) {
-          nextIds.splice(existingIndex, 1);
-        } else {
-          nextIds.push(shapeId);
-        }
+        const groupId = shapeMap[shapeId]?.attrs.groupId;
+        const targetIds = groupId && currentIds.includes(shapeId)
+          ? [shapeId]
+          : groupId
+            ? getGroupMemberIds(groupId)
+            : [shapeId];
+
+        targetIds.forEach((targetId) => {
+          const existingIndex = nextIds.indexOf(targetId);
+          if (existingIndex >= 0) {
+            nextIds.splice(existingIndex, 1);
+          } else {
+            nextIds.push(targetId);
+          }
+        });
       });
       store.setSelectedIds(nextIds);
       return nextIds;
@@ -879,10 +1043,12 @@ export function Room() {
 
   const insertTemplateAt = useCallback((templateId: ProductTemplateId, point: { x: number; y: number }) => {
     const ops = createTemplateOps(templateId, point.x, point.y);
-    ops.forEach(sendShapeOp);
+    runHistoryBatch(() => {
+      ops.forEach(sendShapeOp);
+    });
     window.requestAnimationFrame(fitViewportToContent);
     setEvents((current) => [`inserted template: ${templateId}`, ...current].slice(0, 5));
-  }, [fitViewportToContent, sendShapeOp]);
+  }, [fitViewportToContent, runHistoryBatch, sendShapeOp]);
 
   const handleTemplateInsert = (templateId: ProductTemplateId) => {
     const center = viewportCenter();
@@ -946,7 +1112,9 @@ export function Room() {
       const contents = await file.text();
       const center = viewportCenter();
       const result = createImportOps(file.name, contents, center.x - 420, center.y - 220);
-      result.ops.forEach(sendShapeOp);
+      runHistoryBatch(() => {
+        result.ops.forEach(sendShapeOp);
+      });
       window.requestAnimationFrame(fitViewportToContent);
       setEvents((current) => [`imported ${result.itemCount} ${result.format} item(s) in ${result.sectionCount} section(s)`, ...current].slice(0, 5));
     } catch (err) {
@@ -1009,14 +1177,16 @@ export function Room() {
     const maxZ = Math.max(0, ...zValues);
     const minZ = Math.min(0, ...zValues);
 
-    shapesToUpdate.forEach((shape, index) => {
-      sendShapeOp({
-        opType: 'update',
-        shapeId: shape.id,
-        shapeType: shape.type,
-        attrs: {
-          zIndex: direction === 'front' ? maxZ + index + 1 : minZ - index - 1,
-        },
+    runHistoryBatch(() => {
+      shapesToUpdate.forEach((shape, index) => {
+        sendShapeOp({
+          opType: 'update',
+          shapeId: shape.id,
+          shapeType: shape.type,
+          attrs: {
+            zIndex: direction === 'front' ? maxZ + index + 1 : minZ - index - 1,
+          },
+        });
       });
     });
   };
@@ -1062,24 +1232,29 @@ export function Room() {
     const minX = Math.min(...xs);
     const minY = Math.min(...ys);
 
-    clipboardRef.current.forEach((item, index) => {
-      const shapeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `paste-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
-      sendShapeOp({
-        opType: 'create',
-        shapeId,
-        shapeType: item.shapeType,
-        attrs: {
-          ...item.attrs,
-          x: targetPoint ? targetPoint.x + ((item.attrs?.x ?? 0) - minX) : (item.attrs?.x ?? 0) + offset,
-          y: targetPoint ? targetPoint.y + ((item.attrs?.y ?? 0) - minY) : (item.attrs?.y ?? 0) + offset,
-          zIndex: Date.now() + index,
-          groupId: item.attrs?.groupId ? `${item.attrs.groupId}-copy-${Date.now()}` : undefined,
-        },
+    const pastedIds: string[] = [];
+    runHistoryBatch(() => {
+      clipboardRef.current.forEach((item, index) => {
+        const shapeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `paste-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+        pastedIds.push(shapeId);
+        sendShapeOp({
+          opType: 'create',
+          shapeId,
+          shapeType: item.shapeType,
+          attrs: {
+            ...item.attrs,
+            x: targetPoint ? targetPoint.x + ((item.attrs?.x ?? 0) - minX) : (item.attrs?.x ?? 0) + offset,
+            y: targetPoint ? targetPoint.y + ((item.attrs?.y ?? 0) - minY) : (item.attrs?.y ?? 0) + offset,
+            zIndex: Date.now() + index,
+            groupId: item.attrs?.groupId ? `${item.attrs.groupId}-copy-${Date.now()}` : undefined,
+          },
+        });
       });
     });
-  }, [sendShapeOp]);
+    useShapeStore.getState().setSelectedIds(pastedIds);
+  }, [runHistoryBatch, sendShapeOp]);
 
   const duplicateSelected = useCallback((offset = 36) => {
     const shapesToCopy = shapesForSelection();
@@ -1096,6 +1271,35 @@ export function Room() {
     pasteClipboard(offset);
   }, [pasteClipboard, shapesForSelection]);
 
+  const selectAllShapes = useCallback(() => {
+    const selectableIds = Object.values(useShapeStore.getState().shapes)
+      .filter((shape) => shape.type !== 'connector')
+      .map((shape) => shape.id);
+    useShapeStore.getState().setSelectedIds(selectableIds);
+    setActiveGroupId(null);
+    setEvents((current) => [`selected ${selectableIds.length} item(s)`, ...current].slice(0, 5));
+  }, []);
+
+  const cutSelected = useCallback(() => {
+    const shapesToCut = shapesForSelection();
+    if (shapesToCut.length === 0) {
+      return;
+    }
+
+    copySelected();
+    runHistoryBatch(() => {
+      shapesToCut.forEach((shape) => {
+        sendShapeOp({
+          opType: 'delete',
+          shapeId: shape.id,
+          shapeType: shape.type,
+        });
+      });
+    });
+    setActiveGroupId(null);
+    setEvents((current) => [`cut ${shapesToCut.length} item(s)`, ...current].slice(0, 5));
+  }, [copySelected, runHistoryBatch, sendShapeOp, shapesForSelection]);
+
   const moveSelected = useCallback((dx: number, dy: number, duplicateBeforeMove = false) => {
     const shapesToMove = shapesForSelection();
     if (shapesToMove.length === 0) {
@@ -1106,18 +1310,20 @@ export function Room() {
       duplicateSelected(0);
     }
 
-    shapesToMove.forEach((shape) => {
-      sendShapeOp({
-        opType: 'update',
-        shapeId: shape.id,
-        shapeType: shape.type,
-        attrs: {
-          x: Math.round(shape.attrs.x + dx),
-          y: Math.round(shape.attrs.y + dy),
-        },
+    runHistoryBatch(() => {
+      shapesToMove.forEach((shape) => {
+        sendShapeOp({
+          opType: 'update',
+          shapeId: shape.id,
+          shapeType: shape.type,
+          attrs: {
+            x: Math.round(shape.attrs.x + dx),
+            y: Math.round(shape.attrs.y + dy),
+          },
+        });
       });
     });
-  }, [duplicateSelected, sendShapeOp, shapesForSelection]);
+  }, [duplicateSelected, runHistoryBatch, sendShapeOp, shapesForSelection]);
 
   const groupSelected = useCallback(() => {
     const shapesToGroup = shapesForSelection();
@@ -1128,29 +1334,33 @@ export function Room() {
     const groupId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    shapesToGroup.forEach((shape) => {
-      sendShapeOp({
-        opType: 'update',
-        shapeId: shape.id,
-        shapeType: shape.type,
-        attrs: { groupId, groupName: 'Group' },
+    runHistoryBatch(() => {
+      shapesToGroup.forEach((shape) => {
+        sendShapeOp({
+          opType: 'update',
+          shapeId: shape.id,
+          shapeType: shape.type,
+          attrs: { groupId, groupName: 'Group' },
+        });
       });
     });
     setActiveGroupId(groupId);
-  }, [sendShapeOp, shapesForSelection]);
+  }, [runHistoryBatch, sendShapeOp, shapesForSelection]);
 
   const ungroupSelected = useCallback(() => {
     const shapesToUngroup = shapesForSelection();
-    shapesToUngroup.forEach((shape) => {
-      sendShapeOp({
-        opType: 'update',
-        shapeId: shape.id,
-        shapeType: shape.type,
-        attrs: { groupId: null, groupName: null },
+    runHistoryBatch(() => {
+      shapesToUngroup.forEach((shape) => {
+        sendShapeOp({
+          opType: 'update',
+          shapeId: shape.id,
+          shapeType: shape.type,
+          attrs: { groupId: null, groupName: null },
+        });
       });
     });
     setActiveGroupId(null);
-  }, [sendShapeOp, shapesForSelection]);
+  }, [runHistoryBatch, sendShapeOp, shapesForSelection]);
 
   const exportPng = () => {
     const canvas = stageRef.current?.querySelector('canvas');
@@ -1192,25 +1402,54 @@ export function Room() {
       }
 
       const isModifier = event.ctrlKey || event.metaKey;
-      if (isModifier && event.key.toLowerCase() === 'c') {
+      const key = event.key.toLowerCase();
+      if (isModifier && key === 'a') {
+        event.preventDefault();
+        selectAllShapes();
+        return;
+      }
+
+      if (isModifier && key === 'x') {
+        event.preventDefault();
+        cutSelected();
+        return;
+      }
+
+      if (isModifier && key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoLastAction();
+        } else {
+          undoLastAction();
+        }
+        return;
+      }
+
+      if (isModifier && key === 'y') {
+        event.preventDefault();
+        redoLastAction();
+        return;
+      }
+
+      if (isModifier && key === 'c') {
         event.preventDefault();
         copySelected();
         return;
       }
 
-      if (isModifier && event.key.toLowerCase() === 'd') {
+      if (isModifier && key === 'd') {
         event.preventDefault();
         duplicateSelected();
         return;
       }
 
-      if (isModifier && event.key.toLowerCase() === 'v') {
+      if (isModifier && key === 'v') {
         event.preventDefault();
         pasteClipboard(event.shiftKey ? 12 : 36, lastCanvasPointRef.current ?? undefined);
         return;
       }
 
-      if (isModifier && event.key.toLowerCase() === 'g') {
+      if (isModifier && key === 'g') {
         event.preventDefault();
         if (event.shiftKey) {
           ungroupSelected();
@@ -1245,7 +1484,6 @@ export function Room() {
         return;
       }
 
-      const key = event.key.toLowerCase();
       if (key === 'v') {
         setActiveTool('select');
       }
@@ -1285,7 +1523,7 @@ export function Room() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [copySelected, duplicateSelected, groupSelected, handleDeleteSelected, moveSelected, pasteClipboard, selectedIds.length, selectedShape, ungroupSelected]);
+  }, [copySelected, cutSelected, duplicateSelected, groupSelected, handleDeleteSelected, moveSelected, pasteClipboard, redoLastAction, selectAllShapes, selectedIds.length, selectedShape, undoLastAction, ungroupSelected]);
 
   useEffect(() => {
     if (!activeGroupId) {
@@ -1359,7 +1597,7 @@ export function Room() {
 
   return (
     <main className="whiteboard-shell">
-      <header className="whiteboard-topbar">
+      <header className="whiteboard-topbar" ref={topbarRef}>
         <div>
           <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> Home</Link>
           <h1>{roomName || 'Cocanvas board'}</h1>
@@ -1503,6 +1741,9 @@ export function Room() {
           <button type="button" onClick={() => { copySelected(); setContextMenu(null); }}>
             <Copy size={15} aria-hidden /><span>Copy</span><kbd>Ctrl C</kbd>
           </button>
+          <button type="button" onClick={() => { cutSelected(); setContextMenu(null); }}>
+            <Scissors size={15} aria-hidden /><span>Cut</span><kbd>Ctrl X</kbd>
+          </button>
           <button type="button" onClick={() => { duplicateSelected(); setContextMenu(null); }}>
             <Scissors size={15} aria-hidden /><span>Duplicate</span><kbd>Ctrl D</kbd>
           </button>
@@ -1544,8 +1785,13 @@ export function Room() {
               <div><kbd>P</kbd><span>Pen</span></div>
               <div><kbd>C</kbd><span>Comment</span></div>
               <div><kbd>F</kbd><span>Frame</span></div>
+              <div><kbd>Ctrl/Cmd A</kbd><span>Select all items</span></div>
               <div><kbd>Ctrl/Cmd C</kbd><span>Copy selection</span></div>
+              <div><kbd>Ctrl/Cmd X</kbd><span>Cut selection</span></div>
               <div><kbd>Ctrl/Cmd V</kbd><span>Paste selection</span></div>
+              <div><kbd>Ctrl/Cmd Z</kbd><span>Undo last action</span></div>
+              <div><kbd>Ctrl/Cmd Y</kbd><span>Redo last action</span></div>
+              <div><kbd>Ctrl/Cmd Shift Z</kbd><span>Redo last action</span></div>
               <div><kbd>Ctrl/Cmd D</kbd><span>Duplicate selection</span></div>
               <div><kbd>Delete</kbd><span>Delete selection</span></div>
               <div><kbd>Arrow</kbd><span>Move 1px</span></div>
