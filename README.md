@@ -156,7 +156,7 @@ Cocanvas/
 Windows:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas
+cd D:\Repositories\Cocanvas
 .\run.bat dev
 ```
 
@@ -230,7 +230,7 @@ docker start cocanvas-mysql-local
 2. 启动后端:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas\src\backend\java
+cd D:\Repositories\Cocanvas\src\backend\java
 $env:MYSQL_URL='jdbc:mysql://localhost:3307/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC'
 $env:MYSQL_USER='root'
 $env:MYSQL_PASSWORD='cocanvas123'
@@ -241,7 +241,7 @@ $env:REALTIME_BROADCASTER='local'
 3. 启动前端:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas\src\frontend\app
+cd D:\Repositories\Cocanvas\src\frontend\app
 $env:VITE_PROXY_TARGET='http://localhost:8081'
 corepack pnpm install --frozen-lockfile
 .\node_modules\.bin\vite.cmd --host 127.0.0.1 --port 5173
@@ -336,21 +336,21 @@ ws://<host>/ws/backend2/collab
 后端测试:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas\src\backend\java
+cd D:\Repositories\Cocanvas\src\backend\java
 .\gradlew.bat test --no-daemon --console=plain
 ```
 
 前端构建:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas
+cd D:\Repositories\Cocanvas
 docker compose exec -T frontend pnpm build
 ```
 
 或本机前端构建:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas\src\frontend\app
+cd D:\Repositories\Cocanvas\src\frontend\app
 corepack pnpm install --frozen-lockfile
 pnpm build
 ```
@@ -358,14 +358,14 @@ pnpm build
 Docker Compose 配置检查:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas
+cd D:\Repositories\Cocanvas
 docker compose config --quiet
 ```
 
 后端可靠性代码修改后重建并重启后端容器:
 
 ```powershell
-cd E:\Corcanvas\Cocanvas
+cd D:\Repositories\Cocanvas
 docker compose build backend1 backend2
 docker compose up -d backend1 backend2
 ```
@@ -382,6 +382,7 @@ docker compose up -d backend1 backend2
 - `docs/06_本次实现总结.md`: 早期阶段实现总结。
 - `docs/07_前端白板产品化功能设计与计划.md`: 前端白板产品化设计与计划。
 - `docs/08_阶段实现总结.md`: 本阶段可靠协作链路与前端产品化实现总结。
+- `docs/09_当前进度复现与后续计划.md`: 当前进度复现记录、清理结果与下一步计划。
 
 ## 当前实现边界
 
