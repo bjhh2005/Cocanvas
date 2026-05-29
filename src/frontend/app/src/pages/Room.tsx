@@ -1,5 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import {
+  AlignCenter,
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUpToLine,
+  CheckCircle2,
+  Download,
+  History,
+  ImageDown,
+  Minus,
+  PenLine,
+  Plus,
+  RotateCcw,
+  Trash2,
+  Type,
+  WholeWord,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { CanvasBoard, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
 import { ProductPanel } from '../components/ProductPanel';
@@ -887,7 +906,7 @@ export function Room() {
     <main className="whiteboard-shell">
       <header className="whiteboard-topbar">
         <div>
-          <Link to="/" className="back-link">← Home</Link>
+          <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> Home</Link>
           <h1>Cocanvas board</h1>
           <p>Room {roomId} · <strong style={{ color }}>{displayName}</strong></p>
         </div>
@@ -930,7 +949,7 @@ export function Room() {
               <button
                 key={fill}
                 type="button"
-                title={fill}
+                title={`Fill ${fill}`}
                 style={{ background: fill }}
                 onClick={() => handleStyleChange({
                   fill,
@@ -950,19 +969,29 @@ export function Room() {
               />
             ))}
           </div>
-          <button type="button" onClick={() => handleStyleChange({ strokeWidth: Math.max(0, (selectedShape.attrs.strokeWidth ?? 2) - 1) })}>S-</button>
-          <button type="button" onClick={() => handleStyleChange({ strokeWidth: Math.min(8, (selectedShape.attrs.strokeWidth ?? 2) + 1) })}>S+</button>
-          <button type="button" onClick={() => handleStyleChange({ fontSize: Math.max(14, (selectedShape.attrs.fontSize ?? 22) - 2) })}>A-</button>
-          <button type="button" onClick={() => handleStyleChange({ fontSize: Math.min(48, (selectedShape.attrs.fontSize ?? 22) + 2) })}>A+</button>
-          <button type="button" onClick={handleTextInsideChange} disabled={selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector' || selectedShape.type === 'pen'}>Text</button>
+          <button type="button" title="Thinner stroke" onClick={() => handleStyleChange({ strokeWidth: Math.max(0, (selectedShape.attrs.strokeWidth ?? 2) - 1) })}>
+            <Minus size={15} aria-hidden /><PenLine size={15} aria-hidden />
+          </button>
+          <button type="button" title="Thicker stroke" onClick={() => handleStyleChange({ strokeWidth: Math.min(8, (selectedShape.attrs.strokeWidth ?? 2) + 1) })}>
+            <Plus size={15} aria-hidden /><PenLine size={15} aria-hidden />
+          </button>
+          <button type="button" title="Smaller text" onClick={() => handleStyleChange({ fontSize: Math.max(14, (selectedShape.attrs.fontSize ?? 22) - 2) })}>
+            <Minus size={15} aria-hidden /><Type size={15} aria-hidden />
+          </button>
+          <button type="button" title="Larger text" onClick={() => handleStyleChange({ fontSize: Math.min(48, (selectedShape.attrs.fontSize ?? 22) + 2) })}>
+            <Plus size={15} aria-hidden /><Type size={15} aria-hidden />
+          </button>
+          <button type="button" title="Edit shape text" onClick={handleTextInsideChange} disabled={selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector' || selectedShape.type === 'pen'}>
+            <WholeWord size={16} aria-hidden />
+          </button>
           {selectedShape.type === 'comment' && (
-            <button type="button" onClick={() => handleStyleChange({ resolved: !selectedShape.attrs.resolved })}>
-              {selectedShape.attrs.resolved ? 'Open' : 'Done'}
+            <button type="button" title={selectedShape.attrs.resolved ? 'Reopen comment' : 'Resolve comment'} onClick={() => handleStyleChange({ resolved: !selectedShape.attrs.resolved })}>
+              {selectedShape.attrs.resolved ? <RotateCcw size={16} aria-hidden /> : <CheckCircle2 size={16} aria-hidden />}
             </button>
           )}
-          <button type="button" onClick={() => handleLayerChange('front')}>Front</button>
-          <button type="button" onClick={() => handleLayerChange('back')}>Back</button>
-          <button type="button" onClick={handleDeleteSelected}>Delete</button>
+          <button type="button" title="Bring to front" onClick={() => handleLayerChange('front')}><ArrowUpToLine size={16} aria-hidden /></button>
+          <button type="button" title="Send to back" onClick={() => handleLayerChange('back')}><ArrowDownToLine size={16} aria-hidden /></button>
+          <button type="button" title="Delete selection" onClick={handleDeleteSelected}><Trash2 size={16} aria-hidden /></button>
         </section>
       )}
 
@@ -989,11 +1018,11 @@ export function Room() {
           <span>Wheel to zoom · V select · H hand · N sticky · K card</span>
         </div>
         <div className="zoom-controls" aria-label="Zoom controls">
-          <button type="button" onClick={() => zoomBy(0.9)}>-</button>
+          <button type="button" title="Zoom out" onClick={() => zoomBy(0.9)}><ZoomOut size={16} aria-hidden /></button>
           <span>{Math.round(viewport.scale * 100)}%</span>
-          <button type="button" onClick={() => zoomBy(1.1)}>+</button>
-          <button type="button" onClick={fitViewport}>Fit</button>
-          <button type="button" onClick={exportPng}>PNG</button>
+          <button type="button" title="Zoom in" onClick={() => zoomBy(1.1)}><ZoomIn size={16} aria-hidden /></button>
+          <button type="button" title="Fit to content" onClick={fitViewport}><AlignCenter size={16} aria-hidden /></button>
+          <button type="button" title="Export PNG" onClick={exportPng}><ImageDown size={16} aria-hidden /></button>
         </div>
       </section>
 
@@ -1006,7 +1035,8 @@ export function Room() {
           onChange={(event) => setHistoryAt(Number(event.target.value))}
         />
         <button type="button" onClick={handleLoadHistory} disabled={historyLoading}>
-          {historyLoading ? 'Loading...' : 'Load history'}
+          {historyLoading ? <Download size={16} aria-hidden /> : <History size={16} aria-hidden />}
+          <span>{historyLoading ? 'Loading' : 'Load'}</span>
         </button>
       </section>
 

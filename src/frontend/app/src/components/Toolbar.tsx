@@ -1,4 +1,24 @@
 import { useState } from 'react';
+import {
+  ArrowRight,
+  Circle,
+  CreditCard,
+  Diamond,
+  Frame,
+  Hand,
+  MessageSquare,
+  MousePointer2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Square,
+  StickyNote,
+  Trash2,
+  Triangle,
+  Type,
+  type LucideIcon,
+} from 'lucide-react';
+
 export type ToolMode =
   | 'select'
   | 'hand'
@@ -22,21 +42,21 @@ type ToolbarProps = {
   onDeleteSelected: () => void;
 };
 
-const tools: Array<{ mode: ToolMode; label: string; icon: string; title: string }> = [
-  { mode: 'select', label: 'Select', icon: 'V', title: 'Select' },
-  { mode: 'hand', label: 'Hand', icon: 'H', title: 'Pan canvas' },
-  { mode: 'sticky', label: 'Sticky', icon: 'N', title: 'Sticky note' },
-  { mode: 'card', label: 'Card', icon: 'K', title: 'Product card' },
-  { mode: 'text', label: 'Text', icon: 'T', title: 'Text' },
-  { mode: 'rect', label: 'Rect', icon: 'R', title: 'Rectangle' },
-  { mode: 'roundedRect', label: 'Round', icon: 'U', title: 'Rounded rectangle' },
-  { mode: 'circle', label: 'Circle', icon: 'O', title: 'Circle' },
-  { mode: 'diamond', label: 'Diamond', icon: 'D', title: 'Diamond' },
-  { mode: 'triangle', label: 'Tri', icon: 'Tri', title: 'Triangle' },
-  { mode: 'connector', label: 'Line', icon: '->', title: 'Connector' },
-  { mode: 'pen', label: 'Pen', icon: 'P', title: 'Pen' },
-  { mode: 'comment', label: 'Note', icon: 'C', title: 'Comment' },
-  { mode: 'frame', label: 'Frame', icon: 'F', title: 'Frame' },
+const tools: Array<{ mode: ToolMode; label: string; Icon: LucideIcon; title: string; iconClass?: string }> = [
+  { mode: 'select', label: 'Select', Icon: MousePointer2, title: 'Select' },
+  { mode: 'hand', label: 'Hand', Icon: Hand, title: 'Pan canvas' },
+  { mode: 'sticky', label: 'Sticky', Icon: StickyNote, title: 'Sticky note' },
+  { mode: 'card', label: 'Card', Icon: CreditCard, title: 'Product card' },
+  { mode: 'text', label: 'Text', Icon: Type, title: 'Text' },
+  { mode: 'rect', label: 'Rect', Icon: Square, title: 'Rectangle' },
+  { mode: 'roundedRect', label: 'Round', Icon: Square, title: 'Rounded rectangle', iconClass: 'rounded-rect-icon' },
+  { mode: 'circle', label: 'Circle', Icon: Circle, title: 'Circle' },
+  { mode: 'diamond', label: 'Diamond', Icon: Diamond, title: 'Diamond' },
+  { mode: 'triangle', label: 'Tri', Icon: Triangle, title: 'Triangle' },
+  { mode: 'connector', label: 'Line', Icon: ArrowRight, title: 'Connector' },
+  { mode: 'pen', label: 'Pen', Icon: Pencil, title: 'Pen' },
+  { mode: 'comment', label: 'Note', Icon: MessageSquare, title: 'Comment' },
+  { mode: 'frame', label: 'Frame', Icon: Frame, title: 'Frame' },
 ];
 
 export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
@@ -51,7 +71,7 @@ export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected
         className="toolbar-collapse-button"
         onClick={() => setCollapsed((current) => !current)}
       >
-        <span>{collapsed ? '+' : '-'}</span>
+        {collapsed ? <PanelLeftOpen size={18} aria-hidden /> : <PanelLeftClose size={18} aria-hidden />}
         <small>{collapsed ? 'More' : 'Less'}</small>
       </button>
 
@@ -62,12 +82,12 @@ export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected
           className="active"
           onClick={() => setCollapsed(false)}
         >
-          <span>{activeToolConfig.icon}</span>
+          <activeToolConfig.Icon size={18} className={activeToolConfig.iconClass} aria-hidden />
           <small>{activeToolConfig.label}</small>
         </button>
       ) : (
         <div className="toolbar-scroll">
-          {tools.map((tool) => (
+          {tools.map(({ Icon, ...tool }) => (
             <button
               key={tool.mode}
               type="button"
@@ -75,13 +95,13 @@ export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected
               className={activeTool === tool.mode ? 'active' : undefined}
               onClick={() => onSelectTool(tool.mode)}
             >
-              <span>{tool.icon}</span>
+              <Icon size={18} className={tool.iconClass} aria-hidden />
               <small>{tool.label}</small>
             </button>
           ))}
           <div className="toolbar-divider" />
           <button type="button" title="Delete" onClick={onDeleteSelected} disabled={!selectedId}>
-            <span>Del</span>
+            <Trash2 size={18} aria-hidden />
             <small>Delete</small>
           </button>
         </div>

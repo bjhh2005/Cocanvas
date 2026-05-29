@@ -1,4 +1,20 @@
 import { useMemo, useState } from 'react';
+import {
+  BadgePlus,
+  Columns3,
+  FileJson,
+  FileText,
+  GitBranch,
+  LayoutGrid,
+  ListTodo,
+  Map,
+  PanelRightClose,
+  PanelRightOpen,
+  Search,
+  Sparkles,
+  ThumbsUp,
+  type LucideIcon,
+} from 'lucide-react';
 import type { CanvasShape } from '../store/shapeStore';
 import type { ShapeAttrs } from '../types/protocol';
 import {
@@ -35,6 +51,15 @@ const inputToTags = (value: string) => value
   .map((tag) => tag.trim())
   .filter(Boolean);
 
+const templateIcons: Record<ProductTemplateId, LucideIcon> = {
+  swot: LayoutGrid,
+  journey: Map,
+  matrix: Columns3,
+  'problem-solution': GitBranch,
+  kanban: ListTodo,
+  retro: Sparkles,
+};
+
 export function ProductPanel({
   shapes,
   selectedShape,
@@ -66,7 +91,10 @@ export function ProductPanel({
   if (collapsed) {
     return (
       <aside className="product-panel collapsed" aria-label="Product board">
-        <button type="button" title="Open product panel" onClick={() => setCollapsed(false)}>Plan</button>
+        <button type="button" title="Open product panel" onClick={() => setCollapsed(false)}>
+          <PanelRightOpen size={18} aria-hidden />
+          <span>Plan</span>
+        </button>
       </aside>
     );
   }
@@ -75,18 +103,33 @@ export function ProductPanel({
     <aside className="product-panel" aria-label="Product board">
       <div className="product-panel-header">
         <strong>Board flow</strong>
-        <button type="button" title="Collapse product panel" onClick={() => setCollapsed(true)}>Close</button>
+        <button type="button" title="Collapse product panel" onClick={() => setCollapsed(true)}>
+          <PanelRightClose size={16} aria-hidden />
+          <span>Close</span>
+        </button>
       </div>
 
       <div className="product-actions">
-        <button type="button" onClick={onCreateCard}>New card</button>
-        <button type="button" onClick={onExportMarkdown}>Markdown</button>
-        <button type="button" onClick={onExportJson}>JSON</button>
+        <button type="button" onClick={onCreateCard} title="New product card">
+          <BadgePlus size={16} aria-hidden />
+          <span>Card</span>
+        </button>
+        <button type="button" onClick={onExportMarkdown} title="Export Markdown">
+          <FileText size={16} aria-hidden />
+          <span>MD</span>
+        </button>
+        <button type="button" onClick={onExportJson} title="Export JSON">
+          <FileJson size={16} aria-hidden />
+          <span>JSON</span>
+        </button>
       </div>
 
       <label className="product-field">
         <span>Search</span>
-        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="tag, owner, title" />
+        <div className="input-with-icon">
+          <Search size={15} aria-hidden />
+          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="tag, owner, title" />
+        </div>
       </label>
 
       <div className="product-filter-row">
@@ -111,11 +154,15 @@ export function ProductPanel({
       </div>
 
       <div className="template-grid">
-        {productTemplates.map((template) => (
-          <button key={template.id} type="button" onClick={() => onTemplateInsert(template.id)}>
-            {template.label}
+        {productTemplates.map((template) => {
+          const TemplateIcon = templateIcons[template.id];
+          return (
+          <button key={template.id} type="button" onClick={() => onTemplateInsert(template.id)} title={`${template.label} template`}>
+            <TemplateIcon size={16} aria-hidden />
+            <span>{template.label}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       <section className="product-summary">
@@ -179,7 +226,8 @@ export function ProductPanel({
             />
           </label>
           <button type="button" onClick={onVoteSelected}>
-            Vote {selectedShape.attrs.votes ?? 0}
+            <ThumbsUp size={16} aria-hidden />
+            <span>Vote {selectedShape.attrs.votes ?? 0}</span>
           </button>
         </section>
       )}
@@ -191,7 +239,7 @@ export function ProductPanel({
         ) : topCards.map((shape) => (
           <div key={shape.id}>
             <span>{shape.attrs.title ?? 'Untitled'}</span>
-            <strong>{shape.attrs.votes ?? 0}</strong>
+            <strong><ThumbsUp size={13} aria-hidden /> {shape.attrs.votes ?? 0}</strong>
           </div>
         ))}
       </section>

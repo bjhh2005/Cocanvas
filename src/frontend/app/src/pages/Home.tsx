@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoaderCircle, LogIn, PlusCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createRoom } from '../network/api';
 
@@ -45,7 +46,8 @@ export function Home() {
       <section className="echo-panel">
         <div className="room-actions">
           <button type="button" className="primary-action" onClick={handleCreateRoom} disabled={creating}>
-            {creating ? 'Creating...' : 'Create room'}
+            {creating ? <LoaderCircle size={18} className="spin-icon" aria-hidden /> : <PlusCircle size={18} aria-hidden />}
+            <span>{creating ? 'Creating' : 'Create room'}</span>
           </button>
           <div className="join-controls">
             <input
@@ -58,7 +60,10 @@ export function Home() {
                 }
               }}
             />
-            <button type="button" onClick={handleJoinRoom}>Join</button>
+            <button type="button" onClick={handleJoinRoom}>
+              <LogIn size={18} aria-hidden />
+              <span>Join</span>
+            </button>
           </div>
         </div>
         {error && <p className="error-text">{error}</p>}
