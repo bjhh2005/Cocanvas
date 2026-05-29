@@ -3,23 +3,31 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   BadgePlus,
+  BarChart3,
   CircleDot,
+  ClipboardCheck,
   Columns3,
   Copy,
+  FileInput,
   FileJson,
   FileText,
+  Flame,
   GitBranch,
+  Goal,
   LayoutGrid,
   ListTodo,
   Map,
+  MessageSquareQuote,
   PanelRightClose,
   PanelRightOpen,
   PaintBucket,
+  Rocket,
   Search,
   Sparkles,
   SquareDashedMousePointer,
   ThumbsUp,
   Trash2,
+  TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
 import type { CanvasShape } from '../store/shapeStore';
@@ -27,11 +35,14 @@ import type { ShapeAttrs } from '../types/protocol';
 import {
   cardPriorities,
   cardStatuses,
+  meetingPhases,
   priorityLabels,
   productTemplates,
   shapeText,
   statusLabels,
   tagOptions,
+  type MeetingPhase,
+  type MeetingPhaseId,
   type ProductTemplateId,
 } from '../whiteboard/productBoard';
 
@@ -42,9 +53,18 @@ type ProductPanelProps = {
   query: string;
   statusFilter: string;
   tagFilter: string;
+  activePhaseId: MeetingPhaseId;
+  phases: MeetingPhase[];
   onQueryChange: (query: string) => void;
   onStatusFilterChange: (status: string) => void;
   onTagFilterChange: (tag: string) => void;
+  onPhaseChange: (phaseId: MeetingPhaseId) => void;
+  onPhaseStep: (direction: 1 | -1) => void;
+  onInsertPhaseTemplate: () => void;
+  onAddPhase: () => void;
+  onRemovePhase: (phaseId: MeetingPhaseId) => void;
+  onUpdatePhase: (phaseId: MeetingPhaseId, patch: Partial<MeetingPhase>) => void;
+  onImportFile: (file: File) => void;
   onCreateCard: () => void;
   onTemplateInsert: (templateId: ProductTemplateId) => void;
   onUpdateSelected: (attrs: ShapeAttrs) => void;
@@ -68,6 +88,15 @@ const templateIcons: Record<ProductTemplateId, LucideIcon> = {
   'problem-solution': GitBranch,
   kanban: ListTodo,
   retro: Sparkles,
+  'prd-review': ClipboardCheck,
+  'user-interview': MessageSquareQuote,
+  'decision-matrix': Goal,
+  'ice-prioritization': BarChart3,
+  'rice-scoring': BarChart3,
+  'risk-map': TriangleAlert,
+  'incident-review': Flame,
+  'gtm-plan': Rocket,
+  'experiment-plan': Sparkles,
 };
 
 const fillColors = ['#ffd966', '#dcfce7', '#e0f2fe', '#fef3c7', '#ffe4e6', '#ede9fe', '#ffffff', 'transparent'];
@@ -106,9 +135,18 @@ export function ProductPanel({
   query,
   statusFilter,
   tagFilter,
+  activePhaseId,
+  phases,
   onQueryChange,
   onStatusFilterChange,
   onTagFilterChange,
+  onPhaseChange,
+  onPhaseStep,
+  onInsertPhaseTemplate,
+  onAddPhase,
+  onRemovePhase,
+  onUpdatePhase,
+  onImportFile,
   onCreateCard,
   onTemplateInsert,
   onUpdateSelected,
@@ -132,6 +170,9 @@ export function ProductPanel({
   const canEditText = selectedShape ? textEditableTypes.has(selectedShape.type) : false;
   const showSizeControls = selectedShape && selectedShape.type !== 'connector' && selectedShape.type !== 'pen';
   const showPaintControls = selectedShape && selectedShape.type !== 'text';
+  const activePhaseIndex = phases.findIndex((phase) => phase.id === activePhaseId);
+  const activePhase = phases[activePhaseIndex] ?? phases[0] ?? meetingPhases[0];
+  const templateCategories = [...new Set(productTemplates.map((template) => template.category))];
 
   if (collapsed) {
     return (
@@ -405,6 +446,79 @@ export function ProductPanel({
 
       <details className="inspector-section workflow-section" open>
         <summary>
+          <Goal size={16} aria-hidden />
+          <strong>Meeting flow</strong>
+        </summary>
+        <div className="phase-card">
+          <span>Step {activePhaseIndex + 1} / {phases.length}</span>
+          <label>
+            <span>Phase</span>
+            <input
+              value={activePhase.label}
+              onChange={(event) => onUpdatePhase(activePhase.id, { label: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Prompt</span>
+            <textarea
+              value={activePhase.hint}
+              onChange={(event) => onUpdatePhase(activePhase.id, { hint: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Template</span>
+            <select
+              value={activePhase.templateId}
+              onChange={(event) => onUpdatePhase(activePhase.id, { templateId: event.target.value as ProductTemplateId })}
+            >
+              {productTemplates.map((template) => (
+                <option key={template.id} value={template.id}>{template.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="phase-track" aria-label="Meeting phases">
+          {phases.map((phase, index) => (
+            <button
+              key={phase.id}
+              type="button"
+              className={phase.id === activePhase.id ? 'active' : undefined}
+              title={phase.hint}
+              onClick={() => onPhaseChange(phase.id)}
+            >
+              <span>{index + 1}</span>
+              <strong>{phase.label}</strong>
+            </button>
+          ))}
+        </div>
+        <div className="phase-actions">
+          <button type="button" onClick={() => onPhaseStep(-1)} disabled={activePhaseIndex <= 0}>
+            <ArrowUpToLine size={16} aria-hidden />
+            <span>Prev</span>
+          </button>
+          <button type="button" onClick={onInsertPhaseTemplate}>
+            <Copy size={16} aria-hidden />
+            <span>Use template</span>
+          </button>
+          <button type="button" onClick={() => onPhaseStep(1)} disabled={activePhaseIndex >= phases.length - 1}>
+            <ArrowDownToLine size={16} aria-hidden />
+            <span>Next</span>
+          </button>
+        </div>
+        <div className="phase-actions two">
+          <button type="button" onClick={onAddPhase}>
+            <BadgePlus size={16} aria-hidden />
+            <span>Add phase</span>
+          </button>
+          <button type="button" onClick={() => onRemovePhase(activePhase.id)} disabled={phases.length <= 1}>
+            <Trash2 size={16} aria-hidden />
+            <span>Remove</span>
+          </button>
+        </div>
+      </details>
+
+      <details className="inspector-section workflow-section" open>
+        <summary>
           <Search size={16} aria-hidden />
           <strong>Find and export</strong>
         </summary>
@@ -413,6 +527,21 @@ export function ProductPanel({
             <BadgePlus size={16} aria-hidden />
             <span>Card</span>
           </button>
+          <label className="import-button" title="Import Markdown, TXT, CSV, or JSON">
+            <FileInput size={16} aria-hidden />
+            <span>Import</span>
+            <input
+              type="file"
+              accept=".md,.markdown,.txt,.csv,.json,text/markdown,text/plain,application/json,text/csv"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) {
+                  onImportFile(file);
+                }
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
           <button type="button" onClick={onExportMarkdown} title="Export Markdown">
             <FileText size={16} aria-hidden />
             <span>MD</span>
@@ -459,18 +588,30 @@ export function ProductPanel({
       <details className="inspector-section templates-section">
         <summary>
           <Copy size={16} aria-hidden />
-          <strong>Templates</strong>
+          <strong>Scenario templates</strong>
         </summary>
-        <div className="template-grid">
-          {productTemplates.map((template) => {
-            const TemplateIcon = templateIcons[template.id];
-            return (
-              <button key={template.id} type="button" onClick={() => onTemplateInsert(template.id)} title={`${template.label} template`}>
-                <TemplateIcon size={16} aria-hidden />
-                <span>{template.label}</span>
-              </button>
-            );
-          })}
+        <div className="template-catalog">
+          {templateCategories.map((category) => (
+            <section key={category}>
+              <h3>{category}</h3>
+              <div className="template-list">
+                {productTemplates
+                  .filter((template) => template.category === category)
+                  .map((template) => {
+                    const TemplateIcon = templateIcons[template.id];
+                    return (
+                      <button key={template.id} type="button" onClick={() => onTemplateInsert(template.id)} title={template.description}>
+                        <TemplateIcon size={16} aria-hidden />
+                        <span>
+                          <strong>{template.label}</strong>
+                          <small>{template.description}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </section>
+          ))}
         </div>
       </details>
 

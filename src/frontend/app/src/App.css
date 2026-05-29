@@ -868,6 +868,7 @@
 }
 
 .product-panel button,
+.product-panel .import-button,
 .product-panel input,
 .product-panel select,
 .product-panel textarea {
@@ -880,7 +881,8 @@
   font-size: 13px;
 }
 
-.product-panel button {
+.product-panel button,
+.product-panel .import-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -889,6 +891,10 @@
   padding: 0 10px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.product-panel .import-button input {
+  display: none;
 }
 
 .product-panel details {
@@ -1040,7 +1046,117 @@
 
 .product-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.phase-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.phase-card > span {
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.phase-card strong {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.phase-card p {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.phase-card label {
+  display: grid;
+  gap: 5px;
+}
+
+.phase-card label span {
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.phase-card input,
+.phase-card select,
+.phase-card textarea {
+  width: 100%;
+  min-height: 32px;
+  border-color: #bfdbfe;
+  background: white;
+}
+
+.phase-card textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.phase-track {
+  display: grid;
+  gap: 6px;
+}
+
+.phase-track button {
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.phase-track button span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.phase-track button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phase-track button.active {
+  border-color: #145c4a;
+  color: white;
+  background: #145c4a;
+}
+
+.phase-track button.active span {
+  color: #145c4a;
+  background: white;
+}
+
+.phase-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.4fr 0.8fr;
+  gap: 6px;
+}
+
+.phase-actions.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.phase-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .product-field,
@@ -1070,6 +1186,59 @@
   flex-direction: column;
   gap: 3px;
   min-height: 48px;
+}
+
+.template-catalog {
+  display: grid;
+  gap: 12px;
+}
+
+.template-catalog section {
+  display: grid;
+  gap: 6px;
+}
+
+.template-catalog h3 {
+  margin: 0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.template-list {
+  display: grid;
+  gap: 6px;
+}
+
+.template-list button {
+  justify-content: flex-start;
+  min-height: 48px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.template-list button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.template-list strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-list small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-swatches {

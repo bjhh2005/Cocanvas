@@ -8,12 +8,15 @@ import {
   AudioLines,
   Copy,
   Download,
+  Goal,
   History,
   ImageDown,
   Keyboard,
   Link2,
+  MessageSquarePlus,
   Lock as LockIcon,
   MousePointer2,
+  PlusCircle,
   Mic,
   MicOff,
   Unlink2,
@@ -33,15 +36,19 @@ import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import { useUserStore } from '../store/userStore';
-import type { ServerMessage, ShapeOperation, ShapeType } from '../types/protocol';
+import type { ServerMessage, ShapeAttrs, ShapeOperation, ShapeType } from '../types/protocol';
 import {
   cardPalette,
   createCardOp,
+  createImportOps,
   createTemplateOps,
   downloadTextFile,
   exportMarkdown,
+  meetingPhases,
   shapeText,
   shapeToExportRecord,
+  type MeetingPhase,
+  type MeetingPhaseId,
   type ProductTemplateId,
 } from '../whiteboard/productBoard';
 import { createShapeOp } from '../whiteboard/shapeFactory';
@@ -161,6 +168,8 @@ export function Room() {
   const [productQuery, setProductQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [phases, setPhases] = useState<MeetingPhase[]>(meetingPhases);
+  const [activePhaseId, setActivePhaseId] = useState<MeetingPhaseId>('prepare');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -868,12 +877,91 @@ export function Room() {
     selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : []
   ), [selectedShape, selectedShapes]);
 
-  const handleTemplateInsert = (templateId: ProductTemplateId) => {
-    const center = viewportCenter();
-    const ops = createTemplateOps(templateId, center.x - 420, center.y - 220);
+  const insertTemplateAt = useCallback((templateId: ProductTemplateId, point: { x: number; y: number }) => {
+    const ops = createTemplateOps(templateId, point.x, point.y);
     ops.forEach(sendShapeOp);
     window.requestAnimationFrame(fitViewportToContent);
     setEvents((current) => [`inserted template: ${templateId}`, ...current].slice(0, 5));
+  }, [fitViewportToContent, sendShapeOp]);
+
+  const handleTemplateInsert = (templateId: ProductTemplateId) => {
+    const center = viewportCenter();
+    insertTemplateAt(templateId, { x: center.x - 420, y: center.y - 220 });
+  };
+
+  const activeMeetingPhase = phases.find((phase) => phase.id === activePhaseId) ?? phases[0] ?? meetingPhases[0];
+
+  const handlePhaseChange = (phaseId: MeetingPhaseId) => {
+    setActivePhaseId(phaseId);
+    const phase = phases.find((item) => item.id === phaseId);
+    if (phase) {
+      setEvents((current) => [`meeting phase: ${phase.label}`, ...current].slice(0, 5));
+    }
+  };
+
+  const handlePhaseStep = (direction: 1 | -1) => {
+    const currentIndex = phases.findIndex((phase) => phase.id === activePhaseId);
+    const nextIndex = Math.min(phases.length - 1, Math.max(0, currentIndex + direction));
+    handlePhaseChange(phases[nextIndex].id);
+  };
+
+  const handleInsertPhaseTemplate = () => {
+    handleTemplateInsert(activeMeetingPhase.templateId);
+  };
+
+  const handleAddPhase = () => {
+    const phase: MeetingPhase = {
+      id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      label: '自定义阶段',
+      hint: '写下这个阶段希望团队完成的事情。',
+      templateId: 'kanban',
+    };
+    setPhases((current) => [...current, phase]);
+    setActivePhaseId(phase.id);
+  };
+
+  const handleRemovePhase = (phaseId: MeetingPhaseId) => {
+    setPhases((current) => {
+      if (current.length <= 1) {
+        return current;
+      }
+
+      const index = current.findIndex((phase) => phase.id === phaseId);
+      const next = current.filter((phase) => phase.id !== phaseId);
+      if (activePhaseId === phaseId) {
+        setActivePhaseId(next[Math.max(0, index - 1)]?.id ?? next[0].id);
+      }
+      return next;
+    });
+  };
+
+  const handleUpdatePhase = (phaseId: MeetingPhaseId, patch: Partial<MeetingPhase>) => {
+    setPhases((current) => current.map((phase) => (
+      phase.id === phaseId ? { ...phase, ...patch, id: phase.id } : phase
+    )));
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const contents = await file.text();
+      const center = viewportCenter();
+      const result = createImportOps(file.name, contents, center.x - 420, center.y - 220);
+      result.ops.forEach(sendShapeOp);
+      window.requestAnimationFrame(fitViewportToContent);
+      setEvents((current) => [`imported ${result.itemCount} ${result.format} item(s) in ${result.sectionCount} section(s)`, ...current].slice(0, 5));
+    } catch (err) {
+      setEvents((current) => [`import failed: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
+    }
+  };
+
+  const createCardAt = (point: { x: number; y: number }, attrs: Partial<ShapeAttrs> = {}) => {
+    sendShapeOp(createCardOp(point.x - 130, point.y - 84, attrs));
+    setActiveTool('select');
+  };
+
+  const createCommentAt = (point: { x: number; y: number }) => {
+    sendShapeOp(createShapeOp('comment', point.x - 110, point.y - 43));
+    setActiveTool('select');
   };
 
   const handleProductUpdate = (attrs: ShapeOperation['attrs']) => {
@@ -1262,6 +1350,13 @@ export function Room() {
     );
   }
 
+  const contextMenuCanvasPoint = contextMenu
+    ? screenToCanvasPoint({
+      x: contextMenu.x - (stageRef.current?.getBoundingClientRect().left ?? 0),
+      y: contextMenu.y - (stageRef.current?.getBoundingClientRect().top ?? 0),
+    })
+    : null;
+
   return (
     <main className="whiteboard-shell">
       <header className="whiteboard-topbar">
@@ -1303,9 +1398,18 @@ export function Room() {
         query={productQuery}
         statusFilter={statusFilter}
         tagFilter={tagFilter}
+        activePhaseId={activePhaseId}
+        phases={phases}
         onQueryChange={setProductQuery}
         onStatusFilterChange={setStatusFilter}
         onTagFilterChange={setTagFilter}
+        onPhaseChange={handlePhaseChange}
+        onPhaseStep={handlePhaseStep}
+        onInsertPhaseTemplate={handleInsertPhaseTemplate}
+        onAddPhase={handleAddPhase}
+        onRemovePhase={handleRemovePhase}
+        onUpdatePhase={handleUpdatePhase}
+        onImportFile={handleImportFile}
         onCreateCard={handleCreateCard}
         onTemplateInsert={handleTemplateInsert}
         onUpdateSelected={handleProductUpdate}
@@ -1352,8 +1456,8 @@ export function Room() {
         />
         <CursorLayer viewport={viewport} />
         <div className="board-help">
-          <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'}</strong>
-          <span>Ctrl/Cmd click multi-select · Click a selected group item to edit inside · Ctrl/Cmd+/ shortcuts</span>
+          <strong>{activeMeetingPhase.label}: {activeMeetingPhase.hint}</strong>
+          <span>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'} · Ctrl/Cmd click multi-select · Ctrl/Cmd+/ shortcuts</span>
         </div>
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
@@ -1387,13 +1491,22 @@ export function Room() {
 
       {contextMenu && (
         <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onClick={(event) => event.stopPropagation()}>
+          <button type="button" onClick={() => { if (contextMenuCanvasPoint) createCardAt(contextMenuCanvasPoint); setContextMenu(null); }}>
+            <PlusCircle size={15} aria-hidden /><span>New card here</span><kbd>K</kbd>
+          </button>
+          <button type="button" onClick={() => { if (contextMenuCanvasPoint) createCommentAt(contextMenuCanvasPoint); setContextMenu(null); }}>
+            <MessageSquarePlus size={15} aria-hidden /><span>Comment here</span><kbd>C</kbd>
+          </button>
+          <button type="button" onClick={() => { if (contextMenuCanvasPoint) insertTemplateAt(activeMeetingPhase.templateId, { x: contextMenuCanvasPoint.x - 420, y: contextMenuCanvasPoint.y - 220 }); setContextMenu(null); }}>
+            <Goal size={15} aria-hidden /><span>Phase template</span>
+          </button>
           <button type="button" onClick={() => { copySelected(); setContextMenu(null); }}>
             <Copy size={15} aria-hidden /><span>Copy</span><kbd>Ctrl C</kbd>
           </button>
           <button type="button" onClick={() => { duplicateSelected(); setContextMenu(null); }}>
             <Scissors size={15} aria-hidden /><span>Duplicate</span><kbd>Ctrl D</kbd>
           </button>
-          <button type="button" onClick={() => { pasteClipboard(0, screenToCanvasPoint({ x: contextMenu.x - (stageRef.current?.getBoundingClientRect().left ?? 0), y: contextMenu.y - (stageRef.current?.getBoundingClientRect().top ?? 0) })); setContextMenu(null); }}>
+          <button type="button" onClick={() => { pasteClipboard(0, contextMenuCanvasPoint ?? undefined); setContextMenu(null); }}>
             <MousePointer2 size={15} aria-hidden /><span>Paste</span><kbd>Ctrl V</kbd>
           </button>
           <button type="button" onClick={() => { groupSelected(); setContextMenu(null); }}>
