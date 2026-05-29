@@ -3,9 +3,18 @@ import { Link, useParams } from 'react-router-dom';
 import {
   AlignCenter,
   ArrowLeft,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Copy,
   Download,
   History,
   ImageDown,
+  Keyboard,
+  Link2,
+  MousePointer2,
+  Unlink2,
+  Scissors,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -138,7 +147,10 @@ export function Room() {
   const [productQuery, setProductQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const clipboardRef = useRef<ShapeOperation[]>([]);
+  const lastCanvasPointRef = useRef<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
@@ -569,12 +581,13 @@ export function Room() {
   }, []);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const point = toRelativePoint(event);
+    lastCanvasPointRef.current = screenToCanvasPoint(point);
     const now = Date.now();
     if (now - lastCursorSentAt.current < cursorIntervalMs || status !== 'connected') {
       return;
     }
 
-    const point = toRelativePoint(event);
     lastCursorSentAt.current = now;
     wsClient?.sendJson({
       type: 'cursor',
@@ -604,6 +617,28 @@ export function Room() {
       });
     });
   }, [selectedShape, selectedShapes, sendShapeOp]);
+
+  const expandGroupSelection = useCallback((shapeIds: string[]) => {
+    const ids = new Set(shapeIds);
+    shapeIds.forEach((shapeId) => {
+      const shape = shapeMap[shapeId];
+      const groupId = shape?.attrs.groupId;
+      if (!groupId) {
+        return;
+      }
+
+      Object.values(shapeMap).forEach((candidate) => {
+        if (candidate.attrs.groupId === groupId) {
+          ids.add(candidate.id);
+        }
+      });
+    });
+    return [...ids];
+  }, [shapeMap]);
+
+  const setSelectionWithGroups = useCallback((shapeIds: string[]) => {
+    useShapeStore.getState().setSelectedIds(expandGroupSelection(shapeIds));
+  }, [expandGroupSelection]);
 
   const handleShapeCommit = (op: ShapeOperation) => {
     const stampedOp = stampOp(op);
@@ -674,6 +709,10 @@ export function Room() {
     setActiveTool('select');
   };
 
+  const shapesForSelection = useCallback(() => (
+    selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : []
+  ), [selectedShape, selectedShapes]);
+
   const handleTemplateInsert = (templateId: ProductTemplateId) => {
     const center = viewportCenter();
     const ops = createTemplateOps(templateId, center.x - 420, center.y - 220);
@@ -717,7 +756,7 @@ export function Room() {
   };
 
   const handleLayerChange = (direction: 'front' | 'back') => {
-    const shapesToUpdate = selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : [];
+    const shapesToUpdate = shapesForSelection();
     if (shapesToUpdate.length === 0) {
       return;
     }
@@ -758,7 +797,7 @@ export function Room() {
   };
 
   const copySelected = useCallback(() => {
-    const shapesToCopy = selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : [];
+    const shapesToCopy = shapesForSelection();
     clipboardRef.current = shapesToCopy.map((shape) => ({
       opType: 'create',
       shapeId: shape.id,
@@ -768,12 +807,17 @@ export function Room() {
     if (shapesToCopy.length > 0) {
       setEvents((current) => [`copied ${shapesToCopy.length} item(s)`, ...current].slice(0, 5));
     }
-  }, [selectedShape, selectedShapes]);
+  }, [shapesForSelection]);
 
-  const pasteClipboard = useCallback(() => {
+  const pasteClipboard = useCallback((offset = 36, targetPoint?: { x: number; y: number }) => {
     if (clipboardRef.current.length === 0) {
       return;
     }
+
+    const xs = clipboardRef.current.map((item) => item.attrs?.x ?? 0);
+    const ys = clipboardRef.current.map((item) => item.attrs?.y ?? 0);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
 
     clipboardRef.current.forEach((item, index) => {
       const shapeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -785,13 +829,83 @@ export function Room() {
         shapeType: item.shapeType,
         attrs: {
           ...item.attrs,
-          x: (item.attrs?.x ?? 0) + 36,
-          y: (item.attrs?.y ?? 0) + 36,
+          x: targetPoint ? targetPoint.x + ((item.attrs?.x ?? 0) - minX) : (item.attrs?.x ?? 0) + offset,
+          y: targetPoint ? targetPoint.y + ((item.attrs?.y ?? 0) - minY) : (item.attrs?.y ?? 0) + offset,
           zIndex: Date.now() + index,
+          groupId: item.attrs?.groupId ? `${item.attrs.groupId}-copy-${Date.now()}` : undefined,
         },
       });
     });
   }, [sendShapeOp]);
+
+  const duplicateSelected = useCallback((offset = 36) => {
+    const shapesToCopy = shapesForSelection();
+    if (shapesToCopy.length === 0) {
+      return;
+    }
+
+    clipboardRef.current = shapesToCopy.map((shape) => ({
+      opType: 'create',
+      shapeId: shape.id,
+      shapeType: shape.type,
+      attrs: { ...shape.attrs },
+    }));
+    pasteClipboard(offset);
+  }, [pasteClipboard, shapesForSelection]);
+
+  const moveSelected = useCallback((dx: number, dy: number, duplicateBeforeMove = false) => {
+    const shapesToMove = shapesForSelection();
+    if (shapesToMove.length === 0) {
+      return;
+    }
+
+    if (duplicateBeforeMove) {
+      duplicateSelected(0);
+    }
+
+    shapesToMove.forEach((shape) => {
+      sendShapeOp({
+        opType: 'update',
+        shapeId: shape.id,
+        shapeType: shape.type,
+        attrs: {
+          x: Math.round(shape.attrs.x + dx),
+          y: Math.round(shape.attrs.y + dy),
+        },
+      });
+    });
+  }, [duplicateSelected, sendShapeOp, shapesForSelection]);
+
+  const groupSelected = useCallback(() => {
+    const shapesToGroup = shapesForSelection();
+    if (shapesToGroup.length < 2) {
+      return;
+    }
+
+    const groupId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    shapesToGroup.forEach((shape) => {
+      sendShapeOp({
+        opType: 'update',
+        shapeId: shape.id,
+        shapeType: shape.type,
+        attrs: { groupId, groupName: 'Group' },
+      });
+    });
+  }, [sendShapeOp, shapesForSelection]);
+
+  const ungroupSelected = useCallback(() => {
+    const shapesToUngroup = shapesForSelection();
+    shapesToUngroup.forEach((shape) => {
+      sendShapeOp({
+        opType: 'update',
+        shapeId: shape.id,
+        shapeType: shape.type,
+        attrs: { groupId: null, groupName: null },
+      });
+    });
+  }, [sendShapeOp, shapesForSelection]);
 
   const exportPng = () => {
     const canvas = stageRef.current?.querySelector('canvas');
@@ -839,14 +953,51 @@ export function Room() {
         return;
       }
 
+      if (isModifier && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        duplicateSelected();
+        return;
+      }
+
       if (isModifier && event.key.toLowerCase() === 'v') {
         event.preventDefault();
-        pasteClipboard();
+        pasteClipboard(event.shiftKey ? 12 : 36, lastCanvasPointRef.current ?? undefined);
+        return;
+      }
+
+      if (isModifier && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          ungroupSelected();
+        } else {
+          groupSelected();
+        }
+        return;
+      }
+
+      if (isModifier && event.key === '/') {
+        event.preventDefault();
+        setShortcutsOpen(true);
         return;
       }
 
       if (event.key === 'Escape') {
+        setContextMenu(null);
+        setShortcutsOpen(false);
         setActiveTool('select');
+      }
+
+      const arrowDelta = event.shiftKey ? 10 : 1;
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        if (!selectedShape && selectedIds.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+        const dx = event.key === 'ArrowLeft' ? -arrowDelta : event.key === 'ArrowRight' ? arrowDelta : 0;
+        const dy = event.key === 'ArrowUp' ? -arrowDelta : event.key === 'ArrowDown' ? arrowDelta : 0;
+        moveSelected(dx, dy, event.altKey);
+        return;
       }
 
       const key = event.key.toLowerCase();
@@ -889,7 +1040,7 @@ export function Room() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [copySelected, handleDeleteSelected, pasteClipboard, selectedIds.length, selectedShape]);
+  }, [copySelected, duplicateSelected, groupSelected, handleDeleteSelected, moveSelected, pasteClipboard, selectedIds.length, selectedShape, ungroupSelected]);
 
   const handleLoadHistory = async () => {
     setHistoryLoading(true);
@@ -951,14 +1102,16 @@ export function Room() {
         className="canvas-stage whiteboard-canvas"
         ref={stageRef}
         onMouseMove={handleMouseMove}
+        onClick={() => setContextMenu(null)}
         onDragOver={(event) => {
-          const tool = event.dataTransfer.getData('application/x-cocanvas-tool');
-          if (isDraggableCreateTool(tool)) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={handleToolDrop}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setContextMenu({ x: event.clientX, y: event.clientY });
+        }}
       >
         <CanvasBoard
           width={stageSize.width}
@@ -968,9 +1121,11 @@ export function Room() {
           previewPositions={previewPositions}
           penPreviews={penPreviews}
           visibleShapeIds={visibleShapeIds}
+          onSelectionChange={setSelectionWithGroups}
           onViewportChange={setViewport}
           onShapePreview={handleShapePreview}
           onShapeCommit={handleShapeCommit}
+          onOpenContextMenu={setContextMenu}
           onCreateShape={(op) => {
             sendShapeOp(op);
             setActiveTool('select');
@@ -978,10 +1133,11 @@ export function Room() {
         />
         <CursorLayer />
         <div className="board-help">
-          <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Double-click sticky/text to edit'}</strong>
-          <span>Wheel to zoom · V select · H hand · N sticky · K card</span>
+          <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'}</strong>
+          <span>Double-click to edit · Arrow keys move · Ctrl/Cmd+/ shortcuts</span>
         </div>
         <div className="zoom-controls" aria-label="Zoom controls">
+          <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
           <button type="button" title="Zoom out" onClick={() => zoomBy(0.9)}><ZoomOut size={16} aria-hidden /></button>
           <span>{Math.round(viewport.scale * 100)}%</span>
           <button type="button" title="Zoom in" onClick={() => zoomBy(1.1)}><ZoomIn size={16} aria-hidden /></button>
@@ -1009,6 +1165,71 @@ export function Room() {
           <li key={`${event}-${index}`}>{event}</li>
         ))}
       </ol>
+
+      {contextMenu && (
+        <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onClick={(event) => event.stopPropagation()}>
+          <button type="button" onClick={() => { copySelected(); setContextMenu(null); }}>
+            <Copy size={15} aria-hidden /><span>Copy</span><kbd>Ctrl C</kbd>
+          </button>
+          <button type="button" onClick={() => { duplicateSelected(); setContextMenu(null); }}>
+            <Scissors size={15} aria-hidden /><span>Duplicate</span><kbd>Ctrl D</kbd>
+          </button>
+          <button type="button" onClick={() => { pasteClipboard(0, screenToCanvasPoint({ x: contextMenu.x - (stageRef.current?.getBoundingClientRect().left ?? 0), y: contextMenu.y - (stageRef.current?.getBoundingClientRect().top ?? 0) })); setContextMenu(null); }}>
+            <MousePointer2 size={15} aria-hidden /><span>Paste</span><kbd>Ctrl V</kbd>
+          </button>
+          <button type="button" onClick={() => { groupSelected(); setContextMenu(null); }}>
+            <Link2 size={15} aria-hidden /><span>Group</span><kbd>Ctrl G</kbd>
+          </button>
+          <button type="button" onClick={() => { ungroupSelected(); setContextMenu(null); }}>
+            <Unlink2 size={15} aria-hidden /><span>Ungroup</span><kbd>Ctrl Shift G</kbd>
+          </button>
+          <button type="button" onClick={() => { handleLayerChange('front'); setContextMenu(null); }}>
+            <ArrowUpToLine size={15} aria-hidden /><span>Bring front</span>
+          </button>
+          <button type="button" onClick={() => { handleLayerChange('back'); setContextMenu(null); }}>
+            <ArrowDownToLine size={15} aria-hidden /><span>Send back</span>
+          </button>
+          <button type="button" onClick={() => { handleDeleteSelected(); setContextMenu(null); }}>
+            <Trash2 size={15} aria-hidden /><span>Delete</span><kbd>Del</kbd>
+          </button>
+        </div>
+      )}
+
+      {shortcutsOpen && (
+        <div className="shortcut-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={() => setShortcutsOpen(false)}>
+          <section className="shortcut-dialog" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <Keyboard size={18} aria-hidden />
+              <strong>Keyboard shortcuts</strong>
+              <button type="button" onClick={() => setShortcutsOpen(false)}>Close</button>
+            </header>
+            <div className="shortcut-grid">
+              <div><kbd>V</kbd><span>Select</span></div>
+              <div><kbd>H</kbd><span>Hand / pan</span></div>
+              <div><kbd>N</kbd><span>Sticky note</span></div>
+              <div><kbd>K</kbd><span>Product card</span></div>
+              <div><kbd>T</kbd><span>Text</span></div>
+              <div><kbd>P</kbd><span>Pen</span></div>
+              <div><kbd>C</kbd><span>Comment</span></div>
+              <div><kbd>F</kbd><span>Frame</span></div>
+              <div><kbd>Ctrl/Cmd C</kbd><span>Copy selection</span></div>
+              <div><kbd>Ctrl/Cmd V</kbd><span>Paste selection</span></div>
+              <div><kbd>Ctrl/Cmd D</kbd><span>Duplicate selection</span></div>
+              <div><kbd>Delete</kbd><span>Delete selection</span></div>
+              <div><kbd>Arrow</kbd><span>Move 1px</span></div>
+              <div><kbd>Shift Arrow</kbd><span>Move 10px</span></div>
+              <div><kbd>Alt Arrow</kbd><span>Copy then move</span></div>
+              <div><kbd>Ctrl/Cmd G</kbd><span>Group selection</span></div>
+              <div><kbd>Ctrl/Cmd Shift G</kbd><span>Ungroup selection</span></div>
+              <div><kbd>Ctrl/Cmd drag</kbd><span>Copy while dragging</span></div>
+              <div><kbd>Alt drag</kbd><span>Copy while dragging</span></div>
+              <div><kbd>Shift drag</kbd><span>Lock horizontal / vertical</span></div>
+              <div><kbd>Ctrl/Cmd Shift drag</kbd><span>Copy and lock axis</span></div>
+              <div><kbd>Ctrl/Cmd /</kbd><span>Show shortcuts</span></div>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

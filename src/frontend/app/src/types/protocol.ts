@@ -69,6 +69,8 @@ export type ShapeAttrs = {
   assignee?: string;
   votes?: number;
   voters?: string[];
+  groupId?: string | null;
+  groupName?: string | null;
 };
 
 export type ShapeOperation = {

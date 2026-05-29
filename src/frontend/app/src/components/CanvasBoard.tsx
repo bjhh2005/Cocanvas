@@ -24,6 +24,8 @@ type CanvasBoardProps = {
   onShapePreview: (op: ShapeOperation) => void;
   onShapeCommit: (op: ShapeOperation) => void;
   onCreateShape: (op: ShapeOperation) => void;
+  onOpenContextMenu?: (position: { x: number; y: number }) => void;
+  onSelectionChange?: (shapeIds: string[]) => void;
   visibleShapeIds?: Set<string> | null;
 };
 
@@ -46,6 +48,8 @@ type DragState = {
   dx: number;
   dy: number;
   moved: boolean;
+  duplicate: boolean;
+  axisLock: boolean;
   selectedIds: string[];
   startPositions: Record<string, { x: number; y: number; shapeType: CanvasShape['type'] }>;
 };
@@ -82,6 +86,19 @@ type PenDraft = {
 
 type FrameDraft = SelectionBox;
 
+type ResizeDraft = {
+  shapeId: string;
+  shapeType: CanvasShape['type'];
+  startX: number;
+  startY: number;
+  startW?: number;
+  startH?: number;
+  startRadius?: number;
+  w?: number;
+  h?: number;
+  radius?: number;
+};
+
 const minScale = 0.35;
 const maxScale = 2.4;
 
@@ -96,6 +113,8 @@ export function CanvasBoard({
   onShapePreview,
   onShapeCommit,
   onCreateShape,
+  onOpenContextMenu,
+  onSelectionChange,
   visibleShapeIds,
 }: CanvasBoardProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -117,6 +136,7 @@ export function CanvasBoard({
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [penDraft, setPenDraft] = useState<PenDraft | null>(null);
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
+  const [resizeDraft, setResizeDraft] = useState<ResizeDraft | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
 
   useEffect(() => {
@@ -276,9 +296,12 @@ export function CanvasBoard({
     }
 
     const isShiftClick = 'shiftKey' in event.evt && event.evt.shiftKey;
-    if (isShiftClick) {
+    if (isShiftClick && !selectedIds.includes(shape.id)) {
       return;
     }
+
+    const duplicate = 'ctrlKey' in event.evt && (event.evt.ctrlKey || event.evt.metaKey || event.evt.altKey);
+    const axisLock = 'shiftKey' in event.evt && event.evt.shiftKey;
 
     const nextSelectedIds = selectedIds.includes(shape.id) ? selectedIds : [shape.id];
     const startPositions = Object.fromEntries(
@@ -301,17 +324,42 @@ export function CanvasBoard({
       dx: 0,
       dy: 0,
       moved: false,
+      duplicate,
+      axisLock,
       selectedIds: nextSelectedIds,
       startPositions,
     };
 
-    setSelectedIds(nextSelectedIds);
+    onSelectionChange?.(nextSelectedIds);
+    if (!onSelectionChange) {
+      setSelectedIds(nextSelectedIds);
+    }
     dragStateRef.current = nextDragState;
     setDragState(nextDragState);
   };
 
   const updateShapeDrag = () => {
     const point = pointFromStage();
+
+    if (resizeDraft) {
+      if (point) {
+        const dx = point.x - resizeDraft.startX;
+        const dy = point.y - resizeDraft.startY;
+        if (resizeDraft.shapeType === 'circle') {
+          setResizeDraft((current) => current ? {
+            ...current,
+            radius: Math.max(16, Math.round((current.startRadius ?? 48) + Math.max(dx, dy) / 2)),
+          } : current);
+        } else {
+          setResizeDraft((current) => current ? {
+            ...current,
+            w: Math.max(36, Math.round((current.startW ?? 140) + dx)),
+            h: Math.max(28, Math.round((current.startH ?? 90) + dy)),
+          } : current);
+        }
+      }
+      return;
+    }
 
     if (connectorDraft) {
       if (point) {
@@ -380,8 +428,17 @@ export function CanvasBoard({
       return;
     }
 
-    const x = Math.round(point.x - current.offsetX);
-    const y = Math.round(point.y - current.offsetY);
+    let x = Math.round(point.x - current.offsetX);
+    let y = Math.round(point.y - current.offsetY);
+    const rawDx = x - (current.startPositions[current.shapeId]?.x ?? current.x);
+    const rawDy = y - (current.startPositions[current.shapeId]?.y ?? current.y);
+    if (current.axisLock) {
+      if (Math.abs(rawDx) >= Math.abs(rawDy)) {
+        y = current.startPositions[current.shapeId]?.y ?? current.y;
+      } else {
+        x = current.startPositions[current.shapeId]?.x ?? current.x;
+      }
+    }
     if (x === current.x && y === current.y) {
       return;
     }
@@ -419,13 +476,40 @@ export function CanvasBoard({
       return;
     }
 
+    if (resizeDraft) {
+      const draft = resizeDraft;
+      if (draft.shapeType === 'circle') {
+        onShapeCommit({
+          opType: 'update',
+          shapeId: draft.shapeId,
+          shapeType: draft.shapeType,
+          attrs: { radius: draft.radius ?? draft.startRadius },
+        });
+      } else {
+        onShapeCommit({
+          opType: 'update',
+          shapeId: draft.shapeId,
+          shapeType: draft.shapeType,
+          attrs: {
+            w: draft.w ?? draft.startW,
+            h: draft.h ?? draft.startH,
+          },
+        });
+      }
+      setResizeDraft(null);
+      return;
+    }
+
     if (selectionBox) {
       const bounds = normalizedBounds(selectionBox);
       const nextSelectedIds = renderedBoardShapes
         .filter((shape) => shape.type !== 'frame')
         .filter((shape) => boundsIntersect(bounds, shapeBounds(shape)))
         .map((shape) => shape.id);
-      setSelectedIds(nextSelectedIds);
+      onSelectionChange?.(nextSelectedIds);
+      if (!onSelectionChange) {
+        setSelectedIds(nextSelectedIds);
+      }
       setSelectionBox(null);
       return;
     }
@@ -480,15 +564,31 @@ export function CanvasBoard({
           return;
         }
 
-        onShapeCommit({
-          opType: 'update',
-          shapeId,
-          shapeType: startPosition.shapeType,
-          attrs: {
-            x: Math.round(startPosition.x + current.dx),
-            y: Math.round(startPosition.y + current.dy),
-          },
-        });
+        const attrs = {
+          x: Math.round(startPosition.x + current.dx),
+          y: Math.round(startPosition.y + current.dy),
+        };
+
+        if (current.duplicate) {
+          const originalShape = renderedShapesById[shapeId];
+          if (!originalShape) {
+            return;
+          }
+
+          onCreateShape({
+            opType: 'create',
+            shapeId: uniqueId('drag-copy'),
+            shapeType: startPosition.shapeType,
+            attrs: {
+              ...originalShape.attrs,
+              ...attrs,
+              zIndex: Date.now(),
+            },
+          });
+          return;
+        }
+
+        onShapeCommit({ opType: 'update', shapeId, shapeType: startPosition.shapeType, attrs });
       });
     }
 
@@ -702,6 +802,10 @@ export function CanvasBoard({
         onMouseMove={updateShapeDrag}
         onMouseUp={commitShapeDrag}
         onMouseLeave={commitShapeDrag}
+        onContextMenu={(event) => {
+          event.evt.preventDefault();
+          onOpenContextMenu?.({ x: event.evt.clientX, y: event.evt.clientY });
+        }}
         onTouchMove={updateShapeDrag}
         onTouchEnd={commitShapeDrag}
       >
@@ -800,10 +904,22 @@ export function CanvasBoard({
             );
           })()}
           {renderedBoardShapes.map((shape) => {
+            const draftForShape = resizeDraft?.shapeId === shape.id ? resizeDraft : null;
+            const renderedShape = draftForShape
+              ? {
+                ...shape,
+                attrs: {
+                  ...shape.attrs,
+                  w: draftForShape.w ?? shape.attrs.w,
+                  h: draftForShape.h ?? shape.attrs.h,
+                  radius: draftForShape.radius ?? shape.attrs.radius,
+                },
+              }
+              : shape;
             return (
               <ShapeNode
-                key={shape.id}
-                shape={shape}
+                key={renderedShape.id}
+                shape={renderedShape}
                 selected={selectedIds.includes(shape.id)}
                 editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame' || shape.type === 'card'}
                 dimmed={visibleShapeIds ? !visibleShapeIds.has(shape.id) : false}
@@ -813,10 +929,45 @@ export function CanvasBoard({
                     return;
                   }
 
-                  setSelectedId(shape.id);
+                  onSelectionChange?.([shape.id]);
+                  if (!onSelectionChange) {
+                    setSelectedId(shape.id);
+                  }
                 }}
                 onEdit={() => beginEdit(shape)}
                 onMoveStart={(event) => beginShapeDrag(shape, event)}
+                onResizeStart={(event) => {
+                  event.cancelBubble = true;
+                  const point = pointFromStage();
+                  if (!point) {
+                    return;
+                  }
+
+                  setResizeDraft({
+                    shapeId: shape.id,
+                    shapeType: shape.type,
+                    startX: point.x,
+                    startY: point.y,
+                    startW: shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140),
+                    startH: shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90),
+                    startRadius: shape.attrs.radius ?? 48,
+                    w: shape.attrs.w,
+                    h: shape.attrs.h,
+                    radius: shape.attrs.radius,
+                  });
+                  onSelectionChange?.([shape.id]);
+                  if (!onSelectionChange) {
+                    setSelectedId(shape.id);
+                  }
+                }}
+                onContextMenu={(event) => {
+                  event.evt.preventDefault();
+                  onSelectionChange?.([shape.id]);
+                  if (!onSelectionChange) {
+                    setSelectedId(shape.id);
+                  }
+                  onOpenContextMenu?.({ x: event.evt.clientX, y: event.evt.clientY });
+                }}
                 onAnchorStart={(anchor, event) => beginConnectorDraft(shape, anchor, event)}
                 showAnchors={
                   (activeTool === 'connector' && shape.id === selectedId) ||
@@ -866,6 +1017,8 @@ type ShapeNodeProps = {
   onSelect: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onEdit: () => void;
   onMoveStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  onResizeStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  onContextMenu: (event: Konva.KonvaEventObject<MouseEvent>) => void;
   onAnchorStart: (anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   showAnchors: boolean;
   highlightedAnchor?: AnchorName;
@@ -879,6 +1032,8 @@ function ShapeNode({
   onSelect,
   onEdit,
   onMoveStart,
+  onResizeStart,
+  onContextMenu,
   onAnchorStart,
   showAnchors,
   highlightedAnchor,
@@ -893,6 +1048,7 @@ function ShapeNode({
     onDblClick: editable ? onEdit : undefined,
     onDblTap: editable ? onEdit : undefined,
     onMouseDown: onMoveStart,
+    onContextMenu,
     onTouchStart: onMoveStart,
     opacity: dimmed ? 0.22 : 1,
   };
@@ -915,6 +1071,21 @@ function ShapeNode({
       dash={[6, 4]}
       cornerRadius={radius}
       listening={false}
+    />
+  ) : null;
+
+  const resizeHandle = (x: number, y: number) => selected && shape.type !== 'connector' && shape.type !== 'pen' ? (
+    <Rect
+      x={x - 6}
+      y={y - 6}
+      width={12}
+      height={12}
+      fill="#ffffff"
+      stroke="#1f6feb"
+      strokeWidth={2}
+      cornerRadius={3}
+      onMouseDown={onResizeStart}
+      onTouchStart={onResizeStart}
     />
   ) : null;
 
@@ -963,6 +1134,7 @@ function ShapeNode({
           fill={shape.attrs.textColor ?? '#475569'}
         />
         {selectionOutline(width, height)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -998,6 +1170,7 @@ function ShapeNode({
           lineHeight={1.22}
         />
         {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 8)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1037,6 +1210,7 @@ function ShapeNode({
           />
         )}
         {selectionOutline(diameter, diameter, -radius, -radius, radius)}
+        {resizeHandle(radius, radius)}
         {anchorLayer}
       </Group>
     );
@@ -1069,6 +1243,7 @@ function ShapeNode({
           lineHeight={1.16}
         />
         {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 10)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1179,6 +1354,7 @@ function ShapeNode({
           fill="#0f172a"
         />
         {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 8)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1235,6 +1411,7 @@ function ShapeNode({
           />
         )}
         {selectionOutline(width, height)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1270,6 +1447,7 @@ function ShapeNode({
           />
         )}
         {selectionOutline(width, height)}
+        {resizeHandle(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1300,6 +1478,7 @@ function ShapeNode({
         />
       )}
       {selectionOutline(shape.attrs.w ?? 140, shape.attrs.h ?? 90, 0, 0, shape.type === 'roundedRect' ? (shape.attrs.cornerRadius ?? 18) : 0)}
+      {resizeHandle(shape.attrs.w ?? 140, shape.attrs.h ?? 90)}
       {anchorLayer}
     </Group>
   );
