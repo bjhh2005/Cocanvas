@@ -42,6 +42,20 @@ type ToolbarProps = {
   onDeleteSelected: () => void;
 };
 
+const createTools = new Set<ToolMode>([
+  'sticky',
+  'card',
+  'text',
+  'rect',
+  'roundedRect',
+  'circle',
+  'diamond',
+  'triangle',
+  'pen',
+  'comment',
+  'frame',
+]);
+
 const tools: Array<{ mode: ToolMode; label: string; Icon: LucideIcon; title: string; iconClass?: string }> = [
   { mode: 'select', label: 'Select', Icon: MousePointer2, title: 'Select' },
   { mode: 'hand', label: 'Hand', Icon: Hand, title: 'Pan canvas' },
@@ -92,8 +106,17 @@ export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected
               key={tool.mode}
               type="button"
               title={tool.title}
+              draggable={createTools.has(tool.mode)}
               className={activeTool === tool.mode ? 'active' : undefined}
               onClick={() => onSelectTool(tool.mode)}
+              onDragStart={(event) => {
+                if (!createTools.has(tool.mode)) {
+                  return;
+                }
+
+                event.dataTransfer.setData('application/x-cocanvas-tool', tool.mode);
+                event.dataTransfer.effectAllowed = 'copy';
+              }}
             >
               <Icon size={18} className={tool.iconClass} aria-hidden />
               <small>{tool.label}</small>

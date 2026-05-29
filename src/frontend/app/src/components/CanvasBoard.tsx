@@ -57,6 +57,8 @@ type ConnectorDraft = {
   fromAnchor: AnchorName;
   x: number;
   y: number;
+  targetShapeId?: string;
+  targetAnchor?: AnchorName;
 };
 
 type ShapeBounds = {
@@ -313,7 +315,14 @@ export function CanvasBoard({
 
     if (connectorDraft) {
       if (point) {
-        setConnectorDraft((current) => current ? { ...current, x: point.x, y: point.y } : current);
+        const target = findConnectorTarget(point);
+        setConnectorDraft((current) => current ? {
+          ...current,
+          x: point.x,
+          y: point.y,
+          targetShapeId: target?.shape.id,
+          targetAnchor: target?.anchor,
+        } : current);
       }
       return;
     }
@@ -809,7 +818,11 @@ export function CanvasBoard({
                 onEdit={() => beginEdit(shape)}
                 onMoveStart={(event) => beginShapeDrag(shape, event)}
                 onAnchorStart={(anchor, event) => beginConnectorDraft(shape, anchor, event)}
-                showAnchors={activeTool === 'connector' && shape.id === selectedId}
+                showAnchors={
+                  (activeTool === 'connector' && shape.id === selectedId) ||
+                  connectorDraft?.targetShapeId === shape.id
+                }
+                highlightedAnchor={connectorDraft?.targetShapeId === shape.id ? connectorDraft.targetAnchor : undefined}
               />
             );
           })}
@@ -855,6 +868,7 @@ type ShapeNodeProps = {
   onMoveStart: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onAnchorStart: (anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   showAnchors: boolean;
+  highlightedAnchor?: AnchorName;
   dimmed?: boolean;
 };
 
@@ -867,6 +881,7 @@ function ShapeNode({
   onMoveStart,
   onAnchorStart,
   showAnchors,
+  highlightedAnchor,
   dimmed = false,
 }: ShapeNodeProps) {
   const common = {
@@ -882,11 +897,25 @@ function ShapeNode({
     opacity: dimmed ? 0.22 : 1,
   };
 
-  const stroke = selected ? '#1f6feb' : shape.attrs.stroke;
-  const strokeWidth = selected ? Math.max(shape.attrs.strokeWidth ?? 0, 3) : shape.attrs.strokeWidth;
+  const stroke = shape.attrs.stroke;
+  const strokeWidth = shape.attrs.strokeWidth;
 
   const anchorLayer = showAnchors ? (
-    <AnchorHandles shape={shape} onAnchorStart={onAnchorStart} />
+    <AnchorHandles shape={shape} onAnchorStart={onAnchorStart} highlightedAnchor={highlightedAnchor} />
+  ) : null;
+
+  const selectionOutline = (width: number, height: number, offsetX = 0, offsetY = 0, radius = 4) => selected ? (
+    <Rect
+      x={offsetX - 5}
+      y={offsetY - 5}
+      width={width + 10}
+      height={height + 10}
+      stroke="#1f6feb"
+      strokeWidth={2}
+      dash={[6, 4]}
+      cornerRadius={radius}
+      listening={false}
+    />
   ) : null;
 
   if (shape.type === 'pen') {
@@ -933,6 +962,7 @@ function ShapeNode({
           fontStyle="bold"
           fill={shape.attrs.textColor ?? '#475569'}
         />
+        {selectionOutline(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -967,16 +997,19 @@ function ShapeNode({
           fill={shape.attrs.textColor ?? '#111827'}
           lineHeight={1.22}
         />
+        {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 8)}
         {anchorLayer}
       </Group>
     );
   }
 
   if (shape.type === 'circle') {
+    const radius = shape.attrs.radius ?? 48;
+    const diameter = radius * 2;
     return (
-      <Group x={shape.attrs.x} y={shape.attrs.y}>
+      <Group {...common}>
         <Circle
-          radius={shape.attrs.radius ?? 48}
+          radius={radius}
           fill={shape.attrs.fill}
           stroke={stroke}
           strokeWidth={strokeWidth}
@@ -989,6 +1022,21 @@ function ShapeNode({
           onMouseDown={onMoveStart}
           onTouchStart={onMoveStart}
         />
+        {shape.attrs.text && (
+          <Text
+            text={shape.attrs.text}
+            x={-radius}
+            y={-radius}
+            width={diameter}
+            height={diameter}
+            align="center"
+            verticalAlign="middle"
+            fontSize={shape.attrs.fontSize ?? 18}
+            fill={shape.attrs.textColor ?? '#111827'}
+            listening={false}
+          />
+        )}
+        {selectionOutline(diameter, diameter, -radius, -radius, radius)}
         {anchorLayer}
       </Group>
     );
@@ -1020,6 +1068,7 @@ function ShapeNode({
           fill={shape.attrs.textColor ?? '#202124'}
           lineHeight={1.16}
         />
+        {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 10)}
         {anchorLayer}
       </Group>
     );
@@ -1129,6 +1178,7 @@ function ShapeNode({
           fontStyle="bold"
           fill="#0f172a"
         />
+        {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 8)}
         {anchorLayer}
       </Group>
     );
@@ -1184,6 +1234,7 @@ function ShapeNode({
             fill={shape.attrs.textColor ?? '#111827'}
           />
         )}
+        {selectionOutline(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1218,6 +1269,7 @@ function ShapeNode({
             fill={shape.attrs.textColor ?? '#111827'}
           />
         )}
+        {selectionOutline(width, height)}
         {anchorLayer}
       </Group>
     );
@@ -1247,6 +1299,7 @@ function ShapeNode({
           fill={shape.attrs.textColor ?? '#111827'}
         />
       )}
+      {selectionOutline(shape.attrs.w ?? 140, shape.attrs.h ?? 90, 0, 0, shape.type === 'roundedRect' ? (shape.attrs.cornerRadius ?? 18) : 0)}
       {anchorLayer}
     </Group>
   );
@@ -1255,9 +1308,11 @@ function ShapeNode({
 function AnchorHandles({
   shape,
   onAnchorStart,
+  highlightedAnchor,
 }: {
   shape: CanvasShape;
   onAnchorStart: (anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  highlightedAnchor?: AnchorName;
 }) {
   const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140);
   const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90);
@@ -1277,8 +1332,8 @@ function AnchorHandles({
           key={anchor.name}
           x={anchor.x}
           y={anchor.y}
-          radius={6}
-          fill="#ffffff"
+          radius={highlightedAnchor === anchor.name ? 8 : 6}
+          fill={highlightedAnchor === anchor.name ? '#2563eb' : '#ffffff'}
           stroke="#2563eb"
           strokeWidth={2}
           onMouseDown={(event) => onAnchorStart(anchor.name, event)}

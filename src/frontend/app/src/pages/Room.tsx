@@ -19,7 +19,7 @@ import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import { useUserStore } from '../store/userStore';
-import type { ServerMessage, ShapeOperation } from '../types/protocol';
+import type { ServerMessage, ShapeOperation, ShapeType } from '../types/protocol';
 import {
   cardPalette,
   createCardOp,
@@ -30,10 +30,26 @@ import {
   shapeToExportRecord,
   type ProductTemplateId,
 } from '../whiteboard/productBoard';
+import { createShapeOp } from '../whiteboard/shapeFactory';
 
 const cursorIntervalMs = 50;
 const shapePreviewIntervalMs = 16;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
+const draggableCreateTools = new Set<ToolMode>([
+  'sticky',
+  'card',
+  'text',
+  'rect',
+  'roundedRect',
+  'circle',
+  'diamond',
+  'triangle',
+  'comment',
+]);
+
+const isDraggableCreateTool = (tool: string): tool is Extract<ShapeType, ToolMode> => (
+  draggableCreateTools.has(tool as ToolMode)
+);
 
 const msgId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -632,6 +648,32 @@ export function Room() {
     setActiveTool('select');
   };
 
+  const screenToCanvasPoint = (point: { x: number; y: number }) => ({
+    x: Math.round((point.x - viewport.x) / viewport.scale),
+    y: Math.round((point.y - viewport.y) / viewport.scale),
+  });
+
+  const handleToolDrop = (event: React.DragEvent<HTMLElement>) => {
+    const tool = event.dataTransfer.getData('application/x-cocanvas-tool') as ToolMode;
+    if (!isDraggableCreateTool(tool)) {
+      return;
+    }
+
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = screenToCanvasPoint({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+
+    const op = tool === 'card'
+      ? createCardOp(point.x - 130, point.y - 84)
+      : createShapeOp(tool, point.x, point.y);
+
+    sendShapeOp(op);
+    setActiveTool('select');
+  };
+
   const handleTemplateInsert = (templateId: ProductTemplateId) => {
     const center = viewportCenter();
     const ops = createTemplateOps(templateId, center.x - 420, center.y - 220);
@@ -905,7 +947,19 @@ export function Room() {
         onExportJson={exportProductJson}
       />
 
-      <section className="canvas-stage whiteboard-canvas" ref={stageRef} onMouseMove={handleMouseMove}>
+      <section
+        className="canvas-stage whiteboard-canvas"
+        ref={stageRef}
+        onMouseMove={handleMouseMove}
+        onDragOver={(event) => {
+          const tool = event.dataTransfer.getData('application/x-cocanvas-tool');
+          if (isDraggableCreateTool(tool)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }
+        }}
+        onDrop={handleToolDrop}
+      >
         <CanvasBoard
           width={stageSize.width}
           height={stageSize.height}
