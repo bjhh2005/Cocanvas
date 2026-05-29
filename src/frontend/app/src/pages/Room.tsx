@@ -2,20 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlignCenter,
-  ArrowDownToLine,
   ArrowLeft,
-  ArrowUpToLine,
-  CheckCircle2,
   Download,
   History,
   ImageDown,
-  Minus,
-  PenLine,
-  Plus,
-  RotateCcw,
-  Trash2,
-  Type,
-  WholeWord,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -44,8 +34,6 @@ import {
 const cursorIntervalMs = 50;
 const shapePreviewIntervalMs = 16;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
-const stickyColors = ['#ffd966', '#9fc5e8', '#b6d7a8', '#ead1dc', '#f9cb9c', '#d9d2e9', '#b7e1cd', '#ffffff'];
-const strokeColors = ['#111827', '#334155', '#1d4ed8', '#047857', '#b45309', '#be123c', '#6d28d9', '#ffffff'];
 
 const msgId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -633,22 +621,6 @@ export function Room() {
     sendShapePreview(op);
   };
 
-  const handleStyleChange = (attrs: ShapeOperation['attrs']) => {
-    const shapesToUpdate = selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : [];
-    if (shapesToUpdate.length === 0) {
-      return;
-    }
-
-    shapesToUpdate.forEach((shape) => {
-      sendShapeOp({
-        opType: 'update',
-        shapeId: shape.id,
-        shapeType: shape.type,
-        attrs,
-      });
-    });
-  };
-
   const viewportCenter = useCallback(() => ({
     x: Math.round((stageSize.width / 2 - viewport.x) / viewport.scale),
     y: Math.round((stageSize.height / 2 - viewport.y) / viewport.scale),
@@ -702,38 +674,27 @@ export function Room() {
     });
   };
 
-  const handleTextInsideChange = () => {
-    if (!selectedShape || selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector') {
-      return;
-    }
-
-    const text = window.prompt('Shape text', selectedShape.attrs.text ?? '');
-    if (text === null) {
-      return;
-    }
-
-    handleStyleChange({ text });
-  };
-
-  const handleLayerChange = (direction: 'front' | 'back' | 'forward' | 'backward') => {
-    if (!selectedShape) {
+  const handleLayerChange = (direction: 'front' | 'back') => {
+    const shapesToUpdate = selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : [];
+    if (shapesToUpdate.length === 0) {
       return;
     }
 
     const shapes = Object.values(useShapeStore.getState().shapes);
     const zValues = shapes.map((shape) => shape.attrs.zIndex ?? 0);
-    const current = selectedShape.attrs.zIndex ?? 0;
     const maxZ = Math.max(0, ...zValues);
     const minZ = Math.min(0, ...zValues);
-    const nextZ = direction === 'front'
-      ? maxZ + 1
-      : direction === 'back'
-        ? minZ - 1
-        : direction === 'forward'
-          ? current + 1
-          : current - 1;
 
-    handleStyleChange({ zIndex: nextZ });
+    shapesToUpdate.forEach((shape, index) => {
+      sendShapeOp({
+        opType: 'update',
+        shapeId: shape.id,
+        shapeType: shape.type,
+        attrs: {
+          zIndex: direction === 'front' ? maxZ + index + 1 : minZ - index - 1,
+        },
+      });
+    });
   };
 
   const zoomBy = (factor: number) => {
@@ -927,6 +888,7 @@ export function Room() {
       <ProductPanel
         shapes={allShapes}
         selectedShape={selectedShape}
+        selectedCount={selectedShapes.length}
         query={productQuery}
         statusFilter={statusFilter}
         tagFilter={tagFilter}
@@ -937,63 +899,11 @@ export function Room() {
         onTemplateInsert={handleTemplateInsert}
         onUpdateSelected={handleProductUpdate}
         onVoteSelected={handleVoteSelected}
+        onDeleteSelected={handleDeleteSelected}
+        onLayerChange={handleLayerChange}
         onExportMarkdown={exportProductMarkdown}
         onExportJson={exportProductJson}
       />
-
-      {selectedShape && (
-        <section className="context-toolbar" aria-label="Selection styles">
-          <span>{selectedIds.length > 1 ? `${selectedIds.length} items` : selectedShape.type}</span>
-          <div className="swatches" aria-label="Fill color">
-            {stickyColors.map((fill) => (
-              <button
-                key={fill}
-                type="button"
-                title={`Fill ${fill}`}
-                style={{ background: fill }}
-                onClick={() => handleStyleChange({
-                  fill,
-                  textColor: fill === '#ffffff' || fill === '#ffd966' ? '#202124' : '#111827',
-                })}
-              />
-            ))}
-          </div>
-          <div className="swatches" aria-label="Stroke color">
-            {strokeColors.map((stroke) => (
-              <button
-                key={stroke}
-                type="button"
-                title={`Stroke ${stroke}`}
-                style={{ background: stroke }}
-                onClick={() => handleStyleChange({ stroke })}
-              />
-            ))}
-          </div>
-          <button type="button" title="Thinner stroke" onClick={() => handleStyleChange({ strokeWidth: Math.max(0, (selectedShape.attrs.strokeWidth ?? 2) - 1) })}>
-            <Minus size={15} aria-hidden /><PenLine size={15} aria-hidden />
-          </button>
-          <button type="button" title="Thicker stroke" onClick={() => handleStyleChange({ strokeWidth: Math.min(8, (selectedShape.attrs.strokeWidth ?? 2) + 1) })}>
-            <Plus size={15} aria-hidden /><PenLine size={15} aria-hidden />
-          </button>
-          <button type="button" title="Smaller text" onClick={() => handleStyleChange({ fontSize: Math.max(14, (selectedShape.attrs.fontSize ?? 22) - 2) })}>
-            <Minus size={15} aria-hidden /><Type size={15} aria-hidden />
-          </button>
-          <button type="button" title="Larger text" onClick={() => handleStyleChange({ fontSize: Math.min(48, (selectedShape.attrs.fontSize ?? 22) + 2) })}>
-            <Plus size={15} aria-hidden /><Type size={15} aria-hidden />
-          </button>
-          <button type="button" title="Edit shape text" onClick={handleTextInsideChange} disabled={selectedShape.type === 'text' || selectedShape.type === 'sticky' || selectedShape.type === 'connector' || selectedShape.type === 'pen'}>
-            <WholeWord size={16} aria-hidden />
-          </button>
-          {selectedShape.type === 'comment' && (
-            <button type="button" title={selectedShape.attrs.resolved ? 'Reopen comment' : 'Resolve comment'} onClick={() => handleStyleChange({ resolved: !selectedShape.attrs.resolved })}>
-              {selectedShape.attrs.resolved ? <RotateCcw size={16} aria-hidden /> : <CheckCircle2 size={16} aria-hidden />}
-            </button>
-          )}
-          <button type="button" title="Bring to front" onClick={() => handleLayerChange('front')}><ArrowUpToLine size={16} aria-hidden /></button>
-          <button type="button" title="Send to back" onClick={() => handleLayerChange('back')}><ArrowDownToLine size={16} aria-hidden /></button>
-          <button type="button" title="Delete selection" onClick={handleDeleteSelected}><Trash2 size={16} aria-hidden /></button>
-        </section>
-      )}
 
       <section className="canvas-stage whiteboard-canvas" ref={stageRef} onMouseMove={handleMouseMove}>
         <CanvasBoard
