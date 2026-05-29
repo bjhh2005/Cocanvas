@@ -18,7 +18,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { CanvasBoard, type ViewportState } from '../components/CanvasBoard';
+import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
 import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
@@ -149,6 +149,7 @@ export function Room() {
   const [tagFilter, setTagFilter] = useState('all');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const clipboardRef = useRef<ShapeOperation[]>([]);
   const lastCanvasPointRef = useRef<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
@@ -616,29 +617,81 @@ export function Room() {
         shapeType: shape.type,
       });
     });
+    setActiveGroupId(null);
   }, [selectedShape, selectedShapes, sendShapeOp]);
 
-  const expandGroupSelection = useCallback((shapeIds: string[]) => {
-    const ids = new Set(shapeIds);
-    shapeIds.forEach((shapeId) => {
-      const shape = shapeMap[shapeId];
-      const groupId = shape?.attrs.groupId;
-      if (!groupId) {
-        return;
-      }
+  const getGroupMemberIds = useCallback((groupId: string) => (
+    Object.values(shapeMap)
+      .filter((shape) => shape.attrs.groupId === groupId)
+      .map((shape) => shape.id)
+  ), [shapeMap]);
 
-      Object.values(shapeMap).forEach((candidate) => {
-        if (candidate.attrs.groupId === groupId) {
-          ids.add(candidate.id);
+  const setSelectionWithGroups = useCallback((shapeIds: string[], options?: SelectionChangeOptions) => {
+    const store = useShapeStore.getState();
+    const currentIds = store.selectedIds;
+    const source = options?.source ?? 'shape';
+
+    if (shapeIds.length === 0) {
+      setActiveGroupId(null);
+      store.setSelectedIds([]);
+      return [];
+    }
+
+    if (options?.additive) {
+      setActiveGroupId(null);
+      const nextIds = [...currentIds];
+      shapeIds.forEach((shapeId) => {
+        const existingIndex = nextIds.indexOf(shapeId);
+        if (existingIndex >= 0) {
+          nextIds.splice(existingIndex, 1);
+        } else {
+          nextIds.push(shapeId);
         }
       });
-    });
-    return [...ids];
-  }, [shapeMap]);
+      store.setSelectedIds(nextIds);
+      return nextIds;
+    }
 
-  const setSelectionWithGroups = useCallback((shapeIds: string[]) => {
-    useShapeStore.getState().setSelectedIds(expandGroupSelection(shapeIds));
-  }, [expandGroupSelection]);
+    if (source === 'shape' || source === 'drag' || source === 'context' || source === 'resize') {
+      const shape = shapeMap[shapeIds[0]];
+      const groupId = shape?.attrs.groupId ?? null;
+
+      if (groupId) {
+        const groupMemberIds = getGroupMemberIds(groupId);
+        const groupAlreadySelected = groupMemberIds.length > 1 && groupMemberIds.every((shapeId) => currentIds.includes(shapeId));
+
+        if (source === 'shape' && (activeGroupId === groupId || groupAlreadySelected)) {
+          setActiveGroupId(groupId);
+          store.setSelectedIds([shapeIds[0]]);
+          return [shapeIds[0]];
+        }
+
+        setActiveGroupId(source === 'context' ? null : groupId);
+        store.setSelectedIds(groupMemberIds);
+        return groupMemberIds;
+      }
+    }
+
+    if (source === 'marquee') {
+      const ids = new Set(shapeIds);
+      shapeIds.forEach((shapeId) => {
+        const groupId = shapeMap[shapeId]?.attrs.groupId;
+        if (!groupId) {
+          return;
+        }
+
+        getGroupMemberIds(groupId).forEach((memberId) => ids.add(memberId));
+      });
+      const nextIds = [...ids];
+      setActiveGroupId(null);
+      store.setSelectedIds(nextIds);
+      return nextIds;
+    }
+
+    setActiveGroupId(null);
+    store.setSelectedIds(shapeIds);
+    return shapeIds;
+  }, [activeGroupId, getGroupMemberIds, shapeMap]);
 
   const handleShapeCommit = (op: ShapeOperation) => {
     const stampedOp = stampOp(op);
@@ -893,6 +946,7 @@ export function Room() {
         attrs: { groupId, groupName: 'Group' },
       });
     });
+    setActiveGroupId(groupId);
   }, [sendShapeOp, shapesForSelection]);
 
   const ungroupSelected = useCallback(() => {
@@ -905,6 +959,7 @@ export function Room() {
         attrs: { groupId: null, groupName: null },
       });
     });
+    setActiveGroupId(null);
   }, [sendShapeOp, shapesForSelection]);
 
   const exportPng = () => {
@@ -1042,6 +1097,18 @@ export function Room() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [copySelected, duplicateSelected, groupSelected, handleDeleteSelected, moveSelected, pasteClipboard, selectedIds.length, selectedShape, ungroupSelected]);
 
+  useEffect(() => {
+    if (!activeGroupId) {
+      return;
+    }
+
+    const hasActiveGroupSelection = selectedIds.some((shapeId) => shapeMap[shapeId]?.attrs.groupId === activeGroupId);
+    const groupStillExists = Object.values(shapeMap).some((shape) => shape.attrs.groupId === activeGroupId);
+    if (!hasActiveGroupSelection || !groupStillExists) {
+      setActiveGroupId(null);
+    }
+  }, [activeGroupId, selectedIds, shapeMap]);
+
   const handleLoadHistory = async () => {
     setHistoryLoading(true);
     try {
@@ -1122,6 +1189,7 @@ export function Room() {
           penPreviews={penPreviews}
           visibleShapeIds={visibleShapeIds}
           onSelectionChange={setSelectionWithGroups}
+          activeGroupId={activeGroupId}
           onViewportChange={setViewport}
           onShapePreview={handleShapePreview}
           onShapeCommit={handleShapeCommit}
@@ -1134,7 +1202,7 @@ export function Room() {
         <CursorLayer />
         <div className="board-help">
           <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'}</strong>
-          <span>Double-click to edit · Arrow keys move · Ctrl/Cmd+/ shortcuts</span>
+          <span>Ctrl/Cmd click multi-select · Click a selected group item to edit inside · Ctrl/Cmd+/ shortcuts</span>
         </div>
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
@@ -1221,6 +1289,9 @@ export function Room() {
               <div><kbd>Alt Arrow</kbd><span>Copy then move</span></div>
               <div><kbd>Ctrl/Cmd G</kbd><span>Group selection</span></div>
               <div><kbd>Ctrl/Cmd Shift G</kbd><span>Ungroup selection</span></div>
+              <div><kbd>Ctrl/Cmd click</kbd><span>Add or remove one item</span></div>
+              <div><kbd>Click grouped item</kbd><span>Select the whole group</span></div>
+              <div><kbd>Click selected group item</kbd><span>Edit one item inside</span></div>
               <div><kbd>Ctrl/Cmd drag</kbd><span>Copy while dragging</span></div>
               <div><kbd>Alt drag</kbd><span>Copy while dragging</span></div>
               <div><kbd>Shift drag</kbd><span>Lock horizontal / vertical</span></div>

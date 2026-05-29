@@ -13,6 +13,11 @@ export type ViewportState = {
   y: number;
 };
 
+export type SelectionChangeOptions = {
+  source: 'stage' | 'shape' | 'drag' | 'resize' | 'marquee' | 'context' | 'connector';
+  additive?: boolean;
+};
+
 type CanvasBoardProps = {
   width: number;
   height: number;
@@ -25,7 +30,8 @@ type CanvasBoardProps = {
   onShapeCommit: (op: ShapeOperation) => void;
   onCreateShape: (op: ShapeOperation) => void;
   onOpenContextMenu?: (position: { x: number; y: number }) => void;
-  onSelectionChange?: (shapeIds: string[]) => void;
+  onSelectionChange?: (shapeIds: string[], options?: SelectionChangeOptions) => string[] | void;
+  activeGroupId?: string | null;
   visibleShapeIds?: Set<string> | null;
 };
 
@@ -115,6 +121,7 @@ export function CanvasBoard({
   onCreateShape,
   onOpenContextMenu,
   onSelectionChange,
+  activeGroupId,
   visibleShapeIds,
 }: CanvasBoardProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -129,7 +136,6 @@ export function CanvasBoard({
   const selectedIds = useShapeStore((state) => state.selectedIds);
   const setSelectedId = useShapeStore((state) => state.setSelectedId);
   const setSelectedIds = useShapeStore((state) => state.setSelectedIds);
-  const toggleSelectedId = useShapeStore((state) => state.toggleSelectedId);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [connectorDraft, setConnectorDraft] = useState<ConnectorDraft | null>(null);
@@ -138,6 +144,7 @@ export function CanvasBoard({
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const [resizeDraft, setResizeDraft] = useState<ResizeDraft | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const suppressNextSelectRef = useRef(false);
 
   useEffect(() => {
     if (activeTool !== 'hand') {
@@ -161,6 +168,19 @@ export function CanvasBoard({
     const pointer = stageRef.current?.getPointerPosition();
     return pointer ? screenToCanvas(pointer) : null;
   };
+
+  const applySelection = (shapeIds: string[], options: SelectionChangeOptions) => {
+    const resolvedIds = onSelectionChange?.(shapeIds, options);
+    if (!onSelectionChange) {
+      setSelectedIds(shapeIds);
+    }
+
+    return resolvedIds ?? shapeIds;
+  };
+
+  const eventIsAdditive = (event: MouseEvent | TouchEvent) => (
+    'ctrlKey' in event && (event.ctrlKey || event.metaKey || event.shiftKey)
+  );
 
   const renderedBoardShapes = useMemo(
     () => boardShapes.map((shape) => {
@@ -236,20 +256,18 @@ export function CanvasBoard({
       return;
     }
 
-    setSelectedId(null);
+    applySelection([], { source: 'stage' });
     const point = pointFromStage();
     if (!point) {
       return;
     }
 
     if (activeTool === 'select') {
-      setSelectedId(null);
       setSelectionBox({ startX: point.x, startY: point.y, x: point.x, y: point.y });
       return;
     }
 
     if (activeTool === 'pen') {
-      setSelectedId(null);
       const shapeId = uniqueId('pen');
       setPenDraft({ shapeId, points: [Math.round(point.x), Math.round(point.y)] });
       return;
@@ -295,6 +313,7 @@ export function CanvasBoard({
       return;
     }
 
+    const additive = eventIsAdditive(event.evt);
     const isShiftClick = 'shiftKey' in event.evt && event.evt.shiftKey;
     if (isShiftClick && !selectedIds.includes(shape.id)) {
       return;
@@ -303,7 +322,10 @@ export function CanvasBoard({
     const duplicate = 'ctrlKey' in event.evt && (event.evt.ctrlKey || event.evt.metaKey || event.evt.altKey);
     const axisLock = 'shiftKey' in event.evt && event.evt.shiftKey;
 
-    const nextSelectedIds = selectedIds.includes(shape.id) ? selectedIds : [shape.id];
+    const nextSelectedIds = selectedIds.includes(shape.id)
+      ? selectedIds
+      : applySelection([shape.id], { source: 'drag', additive });
+    suppressNextSelectRef.current = nextSelectedIds.includes(shape.id) && !selectedIds.includes(shape.id);
     const startPositions = Object.fromEntries(
       nextSelectedIds
         .map((shapeId) => renderedShapesById[shapeId])
@@ -330,10 +352,6 @@ export function CanvasBoard({
       startPositions,
     };
 
-    onSelectionChange?.(nextSelectedIds);
-    if (!onSelectionChange) {
-      setSelectedIds(nextSelectedIds);
-    }
     dragStateRef.current = nextDragState;
     setDragState(nextDragState);
   };
@@ -506,10 +524,7 @@ export function CanvasBoard({
         .filter((shape) => shape.type !== 'frame')
         .filter((shape) => boundsIntersect(bounds, shapeBounds(shape)))
         .map((shape) => shape.id);
-      onSelectionChange?.(nextSelectedIds);
-      if (!onSelectionChange) {
-        setSelectedIds(nextSelectedIds);
-      }
+      applySelection(nextSelectedIds, { source: 'marquee' });
       setSelectionBox(null);
       return;
     }
@@ -558,6 +573,7 @@ export function CanvasBoard({
     }
 
     if (current.moved) {
+      suppressNextSelectRef.current = true;
       current.selectedIds.forEach((shapeId) => {
         const startPosition = current.startPositions[shapeId];
         if (!startPosition) {
@@ -633,6 +649,49 @@ export function CanvasBoard({
     left.left + left.width >= right.left &&
     left.top <= right.top + right.height &&
     left.top + left.height >= right.top
+  );
+
+  const combinedBounds = (bounds: ShapeBounds[]) => {
+    const left = Math.min(...bounds.map((bound) => bound.left));
+    const top = Math.min(...bounds.map((bound) => bound.top));
+    const right = Math.max(...bounds.map((bound) => bound.left + bound.width));
+    const bottom = Math.max(...bounds.map((bound) => bound.top + bound.height));
+    return { left, top, width: right - left, height: bottom - top };
+  };
+
+  const groupSelectionFrames = useMemo(() => {
+    const groups = new Map<string, CanvasShape[]>();
+    renderedBoardShapes.forEach((shape) => {
+      const groupId = shape.attrs.groupId;
+      if (!groupId) {
+        return;
+      }
+
+      groups.set(groupId, [...(groups.get(groupId) ?? []), shape]);
+    });
+
+    const selectedSet = new Set(selectedIds);
+    return [...groups.entries()]
+      .filter(([, members]) => members.length > 1)
+      .map(([groupId, members]) => {
+        const allMembersSelected = members.every((member) => selectedSet.has(member.id));
+        const hasInnerSelection = activeGroupId === groupId && members.some((member) => selectedSet.has(member.id));
+        if (!allMembersSelected && !hasInnerSelection) {
+          return null;
+        }
+
+        return {
+          groupId,
+          mode: allMembersSelected ? 'solid' : 'dashed',
+          bounds: combinedBounds(members.map(shapeBounds)),
+        };
+      })
+      .filter((frame): frame is { groupId: string; mode: 'solid' | 'dashed'; bounds: ShapeBounds } => Boolean(frame));
+  }, [activeGroupId, renderedBoardShapes, selectedIds]);
+
+  const solidSelectedGroupIds = useMemo(
+    () => new Set(groupSelectionFrames.filter((frame) => frame.mode === 'solid').map((frame) => frame.groupId)),
+    [groupSelectionFrames]
   );
 
   const anchorPoint = (shape: CanvasShape, anchor: AnchorName = 'center') => {
@@ -826,8 +885,8 @@ export function CanvasBoard({
                 pointerLength={connector.attrs.arrowEnd === false ? 0 : 10}
                 pointerWidth={connector.attrs.arrowEnd === false ? 0 : 10}
                 hitStrokeWidth={12}
-                onClick={() => setSelectedId(connector.id)}
-                onTap={() => setSelectedId(connector.id)}
+                onClick={() => applySelection([connector.id], { source: 'connector' })}
+                onTap={() => applySelection([connector.id], { source: 'connector' })}
               />
             );
           })}
@@ -920,19 +979,16 @@ export function CanvasBoard({
               <ShapeNode
                 key={renderedShape.id}
                 shape={renderedShape}
-                selected={selectedIds.includes(shape.id)}
+                selected={selectedIds.includes(shape.id) && !solidSelectedGroupIds.has(shape.attrs.groupId ?? '')}
                 editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame' || shape.type === 'card'}
                 dimmed={visibleShapeIds ? !visibleShapeIds.has(shape.id) : false}
                 onSelect={(event) => {
-                  if ('shiftKey' in event.evt && event.evt.shiftKey) {
-                    toggleSelectedId(shape.id);
+                  if (suppressNextSelectRef.current) {
+                    suppressNextSelectRef.current = false;
                     return;
                   }
 
-                  onSelectionChange?.([shape.id]);
-                  if (!onSelectionChange) {
-                    setSelectedId(shape.id);
-                  }
+                  applySelection([shape.id], { source: 'shape', additive: eventIsAdditive(event.evt) });
                 }}
                 onEdit={() => beginEdit(shape)}
                 onMoveStart={(event) => beginShapeDrag(shape, event)}
@@ -955,17 +1011,11 @@ export function CanvasBoard({
                     h: shape.attrs.h,
                     radius: shape.attrs.radius,
                   });
-                  onSelectionChange?.([shape.id]);
-                  if (!onSelectionChange) {
-                    setSelectedId(shape.id);
-                  }
+                  applySelection([shape.id], { source: 'resize' });
                 }}
                 onContextMenu={(event) => {
                   event.evt.preventDefault();
-                  onSelectionChange?.([shape.id]);
-                  if (!onSelectionChange) {
-                    setSelectedId(shape.id);
-                  }
+                  applySelection([shape.id], { source: 'context' });
                   onOpenContextMenu?.({ x: event.evt.clientX, y: event.evt.clientY });
                 }}
                 onAnchorStart={(anchor, event) => beginConnectorDraft(shape, anchor, event)}
@@ -977,6 +1027,20 @@ export function CanvasBoard({
               />
             );
           })}
+          {groupSelectionFrames.map((frame) => (
+            <Rect
+              key={frame.groupId}
+              x={frame.bounds.left - 10}
+              y={frame.bounds.top - 10}
+              width={frame.bounds.width + 20}
+              height={frame.bounds.height + 20}
+              stroke={frame.mode === 'solid' ? '#1f6feb' : '#2563eb'}
+              strokeWidth={2}
+              dash={frame.mode === 'dashed' ? [8, 6] : undefined}
+              cornerRadius={6}
+              listening={false}
+            />
+          ))}
         </Layer>
       </Stage>
 
