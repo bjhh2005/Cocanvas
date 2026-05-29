@@ -54,7 +54,7 @@ import {
 import { createShapeOp } from '../whiteboard/shapeFactory';
 
 const cursorIntervalMs = 50;
-const shapePreviewIntervalMs = 16;
+const shapePreviewIntervalMs = 50;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
 const draggableCreateTools = new Set<ToolMode>([
   'sticky',
@@ -106,6 +106,12 @@ const toRelativePoint = (event: React.MouseEvent<HTMLDivElement>) => {
     y: Math.round(event.clientY - rect.top),
   };
 };
+
+declare global {
+  interface Window {
+    __cocanvasPerfSeed?: (count: number) => { count: number; firstId: string };
+  }
+}
 
 const resolveWsUrl = (wsUrl: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -257,6 +263,54 @@ export function Room() {
       .map((shape) => shape.id));
   }, [allShapes, productQuery, statusFilter, tagFilter]);
   const initialRoomPassword = useMemo(() => searchParams.get('password') ?? '', [searchParams]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return undefined;
+    }
+
+    window.__cocanvasPerfSeed = (count: number) => {
+      const safeCount = Math.max(1, Math.min(10000, Math.floor(count)));
+      const snapshot = Object.fromEntries(
+        Array.from({ length: safeCount }, (_, index) => {
+          const columns = Math.ceil(Math.sqrt(safeCount));
+          const x = 80 + (index % columns) * 172;
+          const y = 90 + Math.floor(index / columns) * 122;
+          const shapeId = `perf-node-${index}`;
+          return [
+            shapeId,
+            {
+              shapeType: 'rect',
+              x,
+              y,
+              w: 140,
+              h: 88,
+              text: `N${index + 1}`,
+              fill: index === 0 ? '#f59f00' : '#e0f2fe',
+              stroke: index === 0 ? '#92400e' : '#0369a1',
+              strokeWidth: 2,
+              textColor: '#0f172a',
+              fontSize: 15,
+              cornerRadius: 0,
+              zIndex: index,
+            },
+          ];
+        })
+      );
+
+      useShapeStore.getState().replaceWithSnapshot(snapshot);
+      useShapeStore.getState().setSelectedIds(['perf-node-0']);
+      setPreviewPositions({});
+      setPenPreviews({});
+      setActiveGroupId(null);
+      setEvents((current) => [`perf seed: ${safeCount} local nodes`, ...current].slice(0, 5));
+      return { count: safeCount, firstId: 'perf-node-0' };
+    };
+
+    return () => {
+      delete window.__cocanvasPerfSeed;
+    };
+  }, []);
 
   const applyHistoryState = useCallback((history: HistoryResponse) => {
     const snapshot = parseSnapshotPayload(history.snapshot.payload);

@@ -1,5 +1,5 @@
 import { Arrow, Circle, Group, Layer, Line, Rect, RegularPolygon, Stage, Text } from 'react-konva';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import type { ToolMode } from './Toolbar';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
@@ -111,9 +111,46 @@ type PanDraft = {
   startViewport: ViewportState;
 };
 
+type DragLayerState = {
+  shapes: CanvasShape[];
+};
+
 const minScale = 0.35;
 const maxScale = 2.4;
 const gridSize = 42;
+const viewportOverscan = 520;
+
+const shapeBoundsFor = (shape: CanvasShape): ShapeBounds => {
+  if (shape.type === 'pen' && shape.attrs.points && shape.attrs.points.length >= 2) {
+    const xs = shape.attrs.points.filter((_, index) => index % 2 === 0);
+    const ys = shape.attrs.points.filter((_, index) => index % 2 === 1);
+    const minX = Math.min(...xs) + shape.attrs.x;
+    const minY = Math.min(...ys) + shape.attrs.y;
+    const maxX = Math.max(...xs) + shape.attrs.x;
+    const maxY = Math.max(...ys) + shape.attrs.y;
+    return { left: minX, top: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  }
+
+  const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140);
+  const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90);
+  if (shape.type === 'circle') {
+    return {
+      left: shape.attrs.x - width / 2,
+      top: shape.attrs.y - height / 2,
+      width,
+      height,
+    };
+  }
+
+  return { left: shape.attrs.x, top: shape.attrs.y, width, height };
+};
+
+const boundsIntersect = (left: ShapeBounds, right: ShapeBounds) => (
+  left.left <= right.left + right.width &&
+  left.left + left.width >= right.left &&
+  left.top <= right.top + right.height &&
+  left.top + left.height >= right.top
+);
 
 export function CanvasBoard({
   width,
@@ -150,9 +187,20 @@ export function CanvasBoard({
   const [penDraft, setPenDraft] = useState<PenDraft | null>(null);
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const [resizeDraft, setResizeDraft] = useState<ResizeDraft | null>(null);
+  const [dragLayerState, setDragLayerState] = useState<DragLayerState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const dragLayerStateRef = useRef<DragLayerState | null>(null);
   const panDraftRef = useRef<PanDraft | null>(null);
+  const connectorLayerRef = useRef<Konva.Layer | null>(null);
+  const dragLayerRef = useRef<Konva.Layer | null>(null);
+  const shapeNodeRefs = useRef<Map<string, Konva.Node>>(new Map());
+  const dragShapeNodeRefs = useRef<Map<string, Konva.Node>>(new Map());
+  const connectorNodeRefs = useRef<Map<string, Konva.Arrow>>(new Map());
   const suppressNextSelectRef = useRef(false);
+  const dragLayerShapeIds = useMemo(
+    () => new Set(dragLayerState?.shapes.map((shape) => shape.id) ?? []),
+    [dragLayerState]
+  );
 
   useEffect(() => {
     if (activeTool !== 'hand') {
@@ -162,6 +210,8 @@ export function CanvasBoard({
     const frameId = window.requestAnimationFrame(() => {
       dragStateRef.current = null;
       setDragState(null);
+      dragLayerStateRef.current = null;
+      setDragLayerState(null);
       panDraftRef.current = null;
     });
 
@@ -191,8 +241,51 @@ export function CanvasBoard({
     'ctrlKey' in event && (event.ctrlKey || event.metaKey || event.shiftKey)
   );
 
+  const setShapeNodeRef = useCallback((shapeId: string, node: Konva.Node | null) => {
+    if (node) {
+      shapeNodeRefs.current.set(shapeId, node);
+    } else {
+      shapeNodeRefs.current.delete(shapeId);
+    }
+  }, []);
+
+  const setDragShapeNodeRef = useCallback((shapeId: string, node: Konva.Node | null) => {
+    if (node) {
+      dragShapeNodeRefs.current.set(shapeId, node);
+    } else {
+      dragShapeNodeRefs.current.delete(shapeId);
+    }
+  }, []);
+
+  const setConnectorNodeRef = useCallback((shapeId: string, node: Konva.Arrow | null) => {
+    if (node) {
+      connectorNodeRefs.current.set(shapeId, node);
+    } else {
+      connectorNodeRefs.current.delete(shapeId);
+    }
+  }, []);
+
+  const viewportBounds = useMemo(() => ({
+    left: (-viewport.x / viewport.scale) - viewportOverscan,
+    top: (-viewport.y / viewport.scale) - viewportOverscan,
+    width: (width / viewport.scale) + viewportOverscan * 2,
+    height: (height / viewport.scale) + viewportOverscan * 2,
+  }), [height, viewport.scale, viewport.x, viewport.y, width]);
+
+  const visibleBoardShapes = useMemo(() => {
+    const selectedSet = new Set(selectedIds);
+    return boardShapes.filter((shape) => (
+      selectedSet.has(shape.id) ||
+      boundsIntersect(viewportBounds, shapeBoundsFor(shape))
+    ));
+  }, [boardShapes, selectedIds, viewportBounds]);
+
   const renderedBoardShapes = useMemo(
-    () => boardShapes.map((shape) => {
+    () => visibleBoardShapes.map((shape) => {
+      if (dragLayerShapeIds.has(shape.id)) {
+        return shape;
+      }
+
       const startPosition = dragState?.startPositions[shape.id];
       if (startPosition) {
         return {
@@ -212,13 +305,33 @@ export function CanvasBoard({
 
       return shape;
     }),
-    [boardShapes, dragState, previewPositions]
+    [dragLayerShapeIds, dragState, previewPositions, visibleBoardShapes]
   );
 
   const renderedShapesById = useMemo(
-    () => Object.fromEntries([...connectors, ...renderedBoardShapes].map((shape) => [shape.id, shape])),
-    [connectors, renderedBoardShapes]
+    () => {
+      const renderedShapes = new Map(renderedBoardShapes.map((shape) => [shape.id, shape]));
+      boardShapes.forEach((shape) => {
+        if (!renderedShapes.has(shape.id)) {
+          renderedShapes.set(shape.id, shape);
+        }
+      });
+      connectors.forEach((shape) => renderedShapes.set(shape.id, shape));
+      return Object.fromEntries(renderedShapes);
+    },
+    [boardShapes, connectors, renderedBoardShapes]
   );
+
+  const visibleConnectors = useMemo(() => connectors.filter((connector) => {
+    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
+    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
+    if (!fromShape || !toShape) {
+      return false;
+    }
+
+    return boundsIntersect(viewportBounds, shapeBoundsFor(fromShape)) ||
+      boundsIntersect(viewportBounds, shapeBoundsFor(toShape));
+  }), [connectors, renderedShapesById, viewportBounds]);
 
   const gridLines = useMemo(() => {
     const left = -viewport.x / viewport.scale;
@@ -379,6 +492,9 @@ export function CanvasBoard({
           { x: selectedShape.attrs.x, y: selectedShape.attrs.y, shapeType: selectedShape.type },
         ])
     );
+    const dragShapes = nextSelectedIds
+      .map((shapeId) => renderedShapesById[shapeId])
+      .filter((selectedShape): selectedShape is CanvasShape => Boolean(selectedShape));
 
     const nextDragState = {
       shapeId: shape.id,
@@ -397,6 +513,10 @@ export function CanvasBoard({
     };
 
     dragStateRef.current = nextDragState;
+    const nextDragLayerState = { shapes: dragShapes };
+    dragLayerStateRef.current = nextDragLayerState;
+    dragShapeNodeRefs.current.clear();
+    setDragLayerState(nextDragLayerState);
     setDragState(nextDragState);
   };
 
@@ -528,7 +648,25 @@ export function CanvasBoard({
     };
 
     dragStateRef.current = nextDragState;
-    setDragState(nextDragState);
+    const movingNodeRefs = dragLayerStateRef.current ? dragShapeNodeRefs : shapeNodeRefs;
+    current.selectedIds.forEach((shapeId) => {
+      const startPosition = current.startPositions[shapeId];
+      const node = movingNodeRefs.current.get(shapeId);
+      if (!startPosition || !node) {
+        return;
+      }
+
+      node.position({
+        x: startPosition.x + nextDragState.dx,
+        y: startPosition.y + nextDragState.dy,
+      });
+    });
+    updateConnectorNodesForShapes(current.selectedIds);
+    if (dragLayerStateRef.current) {
+      dragLayerRef.current?.batchDraw();
+    } else {
+      stageRef.current?.batchDraw();
+    }
     onShapePreview({
       opType: 'update',
       shapeId: current.shapeId,
@@ -638,6 +776,7 @@ export function CanvasBoard({
       suppressNextSelectRef.current = true;
       current.selectedIds.forEach((shapeId) => {
         const startPosition = current.startPositions[shapeId];
+        const node = (dragLayerStateRef.current ? dragShapeNodeRefs : shapeNodeRefs).current.get(shapeId);
         if (!startPosition) {
           return;
         }
@@ -646,6 +785,10 @@ export function CanvasBoard({
           x: Math.round(startPosition.x + current.dx),
           y: Math.round(startPosition.y + current.dy),
         };
+
+        if (node) {
+          node.position(attrs);
+        }
 
         if (current.duplicate) {
           const originalShape = renderedShapesById[shapeId];
@@ -671,33 +814,27 @@ export function CanvasBoard({
     }
 
     dragStateRef.current = null;
+    dragLayerStateRef.current = null;
+    dragShapeNodeRefs.current.clear();
+    setDragLayerState(null);
     setDragState(null);
   };
 
-  const shapeBounds = (shape: CanvasShape): ShapeBounds => {
-    if (shape.type === 'pen' && shape.attrs.points && shape.attrs.points.length >= 2) {
-      const xs = shape.attrs.points.filter((_, index) => index % 2 === 0);
-      const ys = shape.attrs.points.filter((_, index) => index % 2 === 1);
-      const minX = Math.min(...xs) + shape.attrs.x;
-      const minY = Math.min(...ys) + shape.attrs.y;
-      const maxX = Math.max(...xs) + shape.attrs.x;
-      const maxY = Math.max(...ys) + shape.attrs.y;
-      return { left: minX, top: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  const shapeBounds = useCallback((shape: CanvasShape): ShapeBounds => {
+    const startPosition = dragState?.startPositions[shape.id];
+    if (!startPosition) {
+      return shapeBoundsFor(shape);
     }
 
-    const width = shape.attrs.w ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 140);
-    const height = shape.attrs.h ?? (shape.type === 'circle' ? (shape.attrs.radius ?? 48) * 2 : 90);
-    if (shape.type === 'circle') {
-      return {
-        left: shape.attrs.x - width / 2,
-        top: shape.attrs.y - height / 2,
-        width,
-        height,
-      };
-    }
-
-    return { left: shape.attrs.x, top: shape.attrs.y, width, height };
-  };
+    return shapeBoundsFor({
+      ...shape,
+      attrs: {
+        ...shape.attrs,
+        x: startPosition.x + dragState.dx,
+        y: startPosition.y + dragState.dy,
+      },
+    });
+  }, [dragState]);
 
   const normalizedBounds = (box: SelectionBox): ShapeBounds => ({
     left: Math.min(box.startX, box.x),
@@ -705,13 +842,6 @@ export function CanvasBoard({
     width: Math.abs(box.x - box.startX),
     height: Math.abs(box.y - box.startY),
   });
-
-  const boundsIntersect = (left: ShapeBounds, right: ShapeBounds) => (
-    left.left <= right.left + right.width &&
-    left.left + left.width >= right.left &&
-    left.top <= right.top + right.height &&
-    left.top + left.height >= right.top
-  );
 
   const combinedBounds = (bounds: ShapeBounds[]) => {
     const left = Math.min(...bounds.map((bound) => bound.left));
@@ -749,7 +879,7 @@ export function CanvasBoard({
         };
       })
       .filter((frame): frame is { groupId: string; mode: 'solid' | 'dashed'; bounds: ShapeBounds } => Boolean(frame));
-  }, [activeGroupId, renderedBoardShapes, selectedIds]);
+  }, [activeGroupId, renderedBoardShapes, selectedIds, shapeBounds]);
 
   const solidSelectedGroupIds = useMemo(
     () => new Set(groupSelectionFrames.filter((frame) => frame.mode === 'solid').map((frame) => frame.groupId)),
@@ -775,6 +905,29 @@ export function CanvasBoard({
     return { x: centerX, y: centerY };
   };
 
+  const shapeWithNodePosition = (shape: CanvasShape) => {
+    const node = dragShapeNodeRefs.current.get(shape.id) ?? shapeNodeRefs.current.get(shape.id);
+    if (!node) {
+      return shape;
+    }
+
+    const position = node.position();
+    return {
+      ...shape,
+      attrs: {
+        ...shape.attrs,
+        x: position.x,
+        y: position.y,
+      },
+    };
+  };
+
+  const connectorPointsForShapes = (connector: CanvasShape, fromShape: CanvasShape, toShape: CanvasShape) => {
+    const from = anchorPoint(fromShape, connector.attrs.fromAnchor);
+    const to = anchorPoint(toShape, connector.attrs.toAnchor);
+    return [from.x, from.y, to.x, to.y];
+  };
+
   const connectorPoints = (connector: CanvasShape) => {
     const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
     const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
@@ -782,9 +935,41 @@ export function CanvasBoard({
       return null;
     }
 
-    const from = anchorPoint(fromShape, connector.attrs.fromAnchor);
-    const to = anchorPoint(toShape, connector.attrs.toAnchor);
-    return [from.x, from.y, to.x, to.y];
+    return connectorPointsForShapes(connector, fromShape, toShape);
+  };
+
+  const liveConnectorPoints = (connector: CanvasShape) => {
+    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
+    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
+    if (!fromShape || !toShape) {
+      return null;
+    }
+
+    return connectorPointsForShapes(
+      connector,
+      shapeWithNodePosition(fromShape),
+      shapeWithNodePosition(toShape)
+    );
+  };
+
+  const updateConnectorNodesForShapes = (shapeIds: string[]) => {
+    const affectedShapeIds = new Set(shapeIds);
+    visibleConnectors.forEach((connector) => {
+      if (
+        !connector.attrs.fromShapeId ||
+        !connector.attrs.toShapeId ||
+        (!affectedShapeIds.has(connector.attrs.fromShapeId) && !affectedShapeIds.has(connector.attrs.toShapeId))
+      ) {
+        return;
+      }
+
+      const points = liveConnectorPoints(connector);
+      const node = connectorNodeRefs.current.get(connector.id);
+      if (points && node) {
+        node.points(points);
+      }
+    });
+    connectorLayerRef.current?.batchDraw();
   };
 
   const beginConnectorDraft = (shape: CanvasShape, anchor: AnchorName, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
@@ -924,7 +1109,7 @@ export function CanvasBoard({
         onTouchMove={updateShapeDrag}
         onTouchEnd={commitShapeDrag}
       >
-        <Layer x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
+        <Layer x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale} listening={false}>
           {gridLines.map((line) => (
             <Line
               key={line.key}
@@ -934,7 +1119,16 @@ export function CanvasBoard({
               listening={false}
             />
           ))}
-          {connectors.map((connector) => {
+        </Layer>
+        <Layer
+          ref={connectorLayerRef}
+          x={viewport.x}
+          y={viewport.y}
+          scaleX={viewport.scale}
+          scaleY={viewport.scale}
+          listening={!dragLayerState}
+        >
+          {visibleConnectors.map((connector) => {
             const points = connectorPoints(connector);
             if (!points) {
               return null;
@@ -942,6 +1136,7 @@ export function CanvasBoard({
 
             return (
               <Arrow
+                ref={(node) => setConnectorNodeRef(connector.id, node)}
                 key={connector.id}
                 points={points}
                 stroke={connector.attrs.stroke}
@@ -955,6 +1150,14 @@ export function CanvasBoard({
               />
             );
           })}
+        </Layer>
+        <Layer
+          x={viewport.x}
+          y={viewport.y}
+          scaleX={viewport.scale}
+          scaleY={viewport.scale}
+          listening={!dragLayerState}
+        >
           {connectorDraft && (() => {
             const from = renderedShapesById[connectorDraft.fromShapeId];
             if (!from) {
@@ -1027,7 +1230,7 @@ export function CanvasBoard({
               />
             );
           })()}
-          {renderedBoardShapes.map((shape) => {
+          {renderedBoardShapes.filter((shape) => !dragLayerShapeIds.has(shape.id)).map((shape) => {
             const draftForShape = resizeDraft?.shapeId === shape.id ? resizeDraft : null;
             const renderedShape = draftForShape
               ? {
@@ -1043,6 +1246,7 @@ export function CanvasBoard({
             return (
               <ShapeNode
                 key={renderedShape.id}
+                nodeRef={(node) => setShapeNodeRef(renderedShape.id, node)}
                 shape={renderedShape}
                 selected={selectedIds.includes(shape.id) && !solidSelectedGroupIds.has(shape.attrs.groupId ?? '')}
                 editable={shape.type === 'text' || shape.type === 'sticky' || shape.type === 'comment' || shape.type === 'frame' || shape.type === 'card'}
@@ -1107,6 +1311,34 @@ export function CanvasBoard({
             />
           ))}
         </Layer>
+        {dragLayerState && (
+          <Layer
+            ref={dragLayerRef}
+            x={viewport.x}
+            y={viewport.y}
+            scaleX={viewport.scale}
+            scaleY={viewport.scale}
+            listening={false}
+          >
+            {dragLayerState.shapes.map((shape) => (
+              <ShapeNode
+                key={shape.id}
+                nodeRef={(node) => setDragShapeNodeRef(shape.id, node)}
+                shape={shape}
+                selected={selectedIds.includes(shape.id)}
+                editable={false}
+                dimmed={visibleShapeIds ? !visibleShapeIds.has(shape.id) : false}
+                onSelect={() => undefined}
+                onEdit={() => undefined}
+                onMoveStart={() => undefined}
+                onResizeStart={() => undefined}
+                onContextMenu={() => undefined}
+                onAnchorStart={() => undefined}
+                showAnchors={false}
+              />
+            ))}
+          </Layer>
+        )}
       </Stage>
 
       {editing && (
@@ -1141,6 +1373,7 @@ export function CanvasBoard({
 
 type ShapeNodeProps = {
   shape: CanvasShape;
+  nodeRef: (node: Konva.Node | null) => void;
   selected: boolean;
   editable: boolean;
   onSelect: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
@@ -1156,6 +1389,7 @@ type ShapeNodeProps = {
 
 function ShapeNode({
   shape,
+  nodeRef,
   selected,
   editable,
   onSelect,
@@ -1169,6 +1403,7 @@ function ShapeNode({
   dimmed = false,
 }: ShapeNodeProps) {
   const common = {
+    ref: nodeRef,
     x: shape.attrs.x,
     y: shape.attrs.y,
     draggable: false,
@@ -1221,6 +1456,7 @@ function ShapeNode({
   if (shape.type === 'pen') {
     return (
       <Line
+        ref={nodeRef as (node: Konva.Line | null) => void}
         points={shape.attrs.points ?? []}
         x={shape.attrs.x}
         y={shape.attrs.y}
