@@ -30,19 +30,57 @@ if [ -f "src/backend/.env" ]; then
 fi
 
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME-cocanvas}"
-export REDIS_HOST_PORT="${REDIS_HOST_PORT-6379}"
+export NGINX_HOST_PORT="${NGINX_HOST_PORT-8088}"
+export REDIS_HOST_PORT="${REDIS_HOST_PORT-6380}"
 export MYSQL_HOST_PORT="${MYSQL_HOST_PORT-3307}"
 export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD-cocanvas123}"
 export MYSQL_DATABASE="${MYSQL_DATABASE-cocanvas}"
-export GRADLE_PROXY_HOST="${GRADLE_PROXY_HOST-host.docker.internal}"
-export GRADLE_PROXY_PORT="${GRADLE_PROXY_PORT-7890}"
+
+if [ -z "${GRADLE_PROXY_HOST:-}" ] && [ -z "${GRADLE_PROXY_PORT:-}" ]; then
+  if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 7890 >/dev/null 2>&1; then
+    export GRADLE_PROXY_HOST="host.docker.internal"
+    export GRADLE_PROXY_PORT="7890"
+    echo "Detected host proxy on 127.0.0.1:7890; Gradle build will use it."
+  else
+    export GRADLE_PROXY_HOST=""
+    export GRADLE_PROXY_PORT=""
+  fi
+fi
+
+pull_images() {
+  echo "Pulling Docker base images..."
+  for image in \
+    docker/dockerfile:1.7 \
+    node:22-alpine \
+    eclipse-temurin:21-jdk \
+    eclipse-temurin:21-jre \
+    nginx:alpine \
+    redis:7 \
+    mysql:8
+  do
+    echo "  $image"
+    if ! docker pull "$image"; then
+      if docker image inspect "$image" >/dev/null 2>&1; then
+        echo "Pull failed for $image; using existing local image."
+      else
+        echo "Failed to pull $image and no local copy is available." >&2
+        return 1
+      fi
+    fi
+  done
+}
 
 case "$command" in
   dev)
+    pull_images
     docker compose up --build
     ;;
   up)
+    pull_images
     docker compose up -d --build
+    ;;
+  pull-images)
+    pull_images
     ;;
   down)
     docker compose down
