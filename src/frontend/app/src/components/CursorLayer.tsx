@@ -1,7 +1,12 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useUserStore } from '../store/userStore';
+import type { ViewportState } from './CanvasBoard';
 
-export function CursorLayer() {
+type CursorLayerProps = {
+  viewport: ViewportState;
+};
+
+export function CursorLayer({ viewport }: CursorLayerProps) {
   const remoteMap = useUserStore((state) => state.remotes);
   const remotes = useMemo(() => Object.values(remoteMap), [remoteMap]);
 
@@ -12,7 +17,7 @@ export function CursorLayer() {
           className="remote-cursor"
           key={peer.userId}
           style={{
-            transform: `translate(${peer.x}px, ${peer.y}px)`,
+            transform: `translate(${viewport.x + peer.x * viewport.scale}px, ${viewport.y + peer.y * viewport.scale}px)`,
             '--cursor-color': peer.color,
           } as CSSProperties}
         >

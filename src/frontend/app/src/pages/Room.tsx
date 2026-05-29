@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlignCenter,
   ArrowLeft,
   ArrowDownToLine,
   ArrowUpToLine,
+  AudioLines,
   Copy,
   Download,
   History,
   ImageDown,
   Keyboard,
   Link2,
+  Lock as LockIcon,
   MousePointer2,
+  Mic,
+  MicOff,
+  UserRound,
   Unlink2,
   Scissors,
   Trash2,
@@ -27,7 +32,7 @@ import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
-import { useUserStore } from '../store/userStore';
+import { useUserStore, userPalette } from '../store/userStore';
 import type { ServerMessage, ShapeOperation, ShapeType } from '../types/protocol';
 import {
   cardPalette,
@@ -136,9 +141,18 @@ const shapeBounds = () => {
 
 export function Room() {
   const { roomId = '' } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [events, setEvents] = useState<string[]>([]);
   const [historyAt, setHistoryAt] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [roomName, setRoomName] = useState('');
+  const [roomWsUrl, setRoomWsUrl] = useState('');
+  const [roomPassword, setRoomPassword] = useState(() => searchParams.get('password') ?? '');
+  const [roomAccessState, setRoomAccessState] = useState<'checking' | 'ready' | 'password' | 'missing'>('checking');
+  const [roomPasswordError, setRoomPasswordError] = useState<string | null>(null);
+  const [roomVoiceEnabled, setRoomVoiceEnabled] = useState(false);
+  const [micEnabled, setMicEnabled] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 520 });
   const [activeTool, setActiveTool] = useState<ToolMode>('select');
   const [viewport, setViewport] = useState<ViewportState>({ scale: 1, x: 0, y: 0 });
@@ -160,6 +174,7 @@ export function Room() {
   const restoringRef = useRef(false);
   const bufferedOpsRef = useRef<ShapeOperation[]>([]);
   const pendingOpsRef = useRef<ShapeOperation[]>([]);
+  const localAudioStreamRef = useRef<MediaStream | null>(null);
   const restoreGenerationRef = useRef(0);
   const connectionGenerationRef = useRef(0);
   const setRoomId = useConnectionStore((state) => state.setRoomId);
@@ -170,6 +185,8 @@ export function Room() {
   const userId = useUserStore((state) => state.userId);
   const displayName = useUserStore((state) => state.displayName);
   const color = useUserStore((state) => state.color);
+  const setDisplayName = useUserStore((state) => state.setDisplayName);
+  const setColor = useUserStore((state) => state.setColor);
   const setPeers = useUserStore((state) => state.setPeers);
   const addPeer = useUserStore((state) => state.addPeer);
   const removePeer = useUserStore((state) => state.removePeer);
@@ -205,6 +222,7 @@ export function Room() {
       })
       .map((shape) => shape.id));
   }, [allShapes, productQuery, statusFilter, tagFilter]);
+  const initialRoomPassword = useMemo(() => searchParams.get('password') ?? '', [searchParams]);
 
   const applyHistoryState = useCallback((history: HistoryResponse) => {
     const snapshot = parseSnapshotPayload(history.snapshot.payload);
@@ -219,6 +237,33 @@ export function Room() {
 
     return history.ops.length;
   }, [applyOp, replaceWithSnapshot]);
+
+  const verifyRoomAccess = useCallback(async (password?: string) => {
+    if (!roomId) {
+      setRoomAccessState('missing');
+      return null;
+    }
+
+    setRoomAccessState('checking');
+    setRoomPasswordError(null);
+    const room = await getRoom(roomId, password || undefined);
+    if (!room.exists) {
+      setRoomAccessState('missing');
+      return room;
+    }
+
+    setRoomName(room.name);
+    setRoomVoiceEnabled(room.voiceEnabled);
+    if (!room.authorized) {
+      setRoomWsUrl('');
+      setRoomAccessState('password');
+      return room;
+    }
+
+    setRoomWsUrl(room.wsUrl);
+    setRoomAccessState('ready');
+    return room;
+  }, [roomId]);
 
   const restoreLatestState = useCallback(async () => {
     const history = await getRoomHistory(roomId, Date.now());
@@ -369,7 +414,22 @@ export function Room() {
   }, [stageSize.height, stageSize.width]);
 
   useEffect(() => {
-    if (!roomId) {
+    let active = true;
+    verifyRoomAccess(initialRoomPassword || undefined)
+      .catch((err) => {
+        if (active) {
+          setRoomAccessState('missing');
+          setEvents((current) => [`room check failed: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialRoomPassword, roomId, verifyRoomAccess]);
+
+  useEffect(() => {
+    if (!roomId || roomAccessState !== 'ready' || !roomWsUrl) {
       return;
     }
 
@@ -398,12 +458,11 @@ export function Room() {
       const connectionGeneration = connectionGenerationRef.current + 1;
       connectionGenerationRef.current = connectionGeneration;
       setRoomId(roomId);
-      const room = await getRoom(roomId);
-      if (!active || !room.exists || connectionGenerationRef.current !== connectionGeneration) {
+      if (!active || connectionGenerationRef.current !== connectionGeneration) {
         return;
       }
 
-      const url = resolveWsUrl(room.wsUrl);
+      const url = resolveWsUrl(roomWsUrl);
       client = new WSClient(url);
       setClient(client);
 
@@ -560,7 +619,7 @@ export function Room() {
       setClient(null);
       setRoomId(null);
     };
-  }, [addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomId, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
+  }, [addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -583,7 +642,8 @@ export function Room() {
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     const point = toRelativePoint(event);
-    lastCanvasPointRef.current = screenToCanvasPoint(point);
+    const canvasPoint = screenToCanvasPoint(point);
+    lastCanvasPointRef.current = canvasPoint;
     const now = Date.now();
     if (now - lastCursorSentAt.current < cursorIntervalMs || status !== 'connected') {
       return;
@@ -595,14 +655,58 @@ export function Room() {
       msgId: msgId(),
       roomId,
       userId,
-      x: point.x,
-      y: point.y,
+      x: canvasPoint.x,
+      y: canvasPoint.y,
     });
   };
 
   const handleToolSelect = (tool: ToolMode) => {
     setActiveTool(tool);
   };
+
+  const handlePasswordSubmit = async () => {
+    try {
+      const room = await verifyRoomAccess(roomPassword);
+      if (room && !room.authorized) {
+        setRoomPasswordError('密码不正确，请重新输入。');
+        setRoomAccessState('password');
+        return;
+      }
+      if (room?.authorized && roomPassword) {
+        setSearchParams({ password: roomPassword });
+      }
+    } catch (err) {
+      setRoomPasswordError('验证失败，请稍后再试。');
+      setEvents((current) => [`password check failed: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
+      setRoomAccessState('password');
+    }
+  };
+
+  const toggleMicrophone = async () => {
+    setMicError(null);
+    if (micEnabled) {
+      localAudioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localAudioStreamRef.current = null;
+      setMicEnabled(false);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicError('当前浏览器不支持麦克风权限');
+      return;
+    }
+
+    try {
+      localAudioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicEnabled(true);
+    } catch (err) {
+      setMicError(err instanceof Error ? err.message : '无法开启麦克风');
+    }
+  };
+
+  useEffect(() => () => {
+    localAudioStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const handleDeleteSelected = useCallback(() => {
     const shapesToDelete = selectedShapes.length > 0 ? selectedShapes : selectedShape ? [selectedShape] : [];
@@ -1123,19 +1227,87 @@ export function Room() {
     }
   };
 
+  if (roomAccessState !== 'ready') {
+    return (
+      <main className="room-gate">
+        <section className="room-gate-panel">
+          <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> 房间控制台</Link>
+          <h1>{roomAccessState === 'missing' ? '房间不存在或已归档' : roomAccessState === 'password' ? '需要房间密码' : '正在检查房间'}</h1>
+          {roomAccessState === 'password' && (
+            <form
+              className="gate-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handlePasswordSubmit();
+              }}
+            >
+              <input
+                type="password"
+                value={roomPassword}
+                placeholder="输入房间密码"
+                onChange={(event) => {
+                  setRoomPassword(event.target.value);
+                  setRoomPasswordError(null);
+                }}
+              />
+              {roomPasswordError && <p className="error-text">{roomPasswordError}</p>}
+              <button type="submit">
+                <LockIcon size={16} aria-hidden />
+                <span>进入房间</span>
+              </button>
+            </form>
+          )}
+          {roomAccessState === 'checking' && <p>正在确认房间号、权限和会议配置。</p>}
+          {roomAccessState === 'missing' && <p>请返回控制台创建房间，或检查房间号是否正确。</p>}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="whiteboard-shell">
       <header className="whiteboard-topbar">
         <div>
           <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> Home</Link>
-          <h1>Cocanvas board</h1>
-          <p>Room {roomId} · <strong style={{ color }}>{displayName}</strong></p>
+          <h1>{roomName || 'Cocanvas board'}</h1>
+          <p>Room {roomId}</p>
         </div>
+        <section className="room-identity" aria-label="我的协作身份">
+          <UserRound size={15} aria-hidden />
+          <input
+            value={displayName}
+            aria-label="协作显示名称"
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
+          <div className="color-swatches compact" aria-label="选择协作颜色">
+            {userPalette.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={item === color ? 'active' : ''}
+                title={item}
+                style={{ background: item }}
+                onClick={() => setColor(item)}
+              />
+            ))}
+          </div>
+        </section>
         <div className="room-stats">
           <span>WS: <strong>{status}</strong></span>
           <span>Peers: <strong>{remoteCount}</strong></span>
           <span>Tool: <strong>{activeTool}</strong></span>
         </div>
+        {roomVoiceEnabled && (
+          <div className="meeting-strip">
+            <AudioLines size={16} aria-hidden />
+            <span>{micEnabled ? '麦克风已开启' : '会议语音待加入'}</span>
+            <button type="button" onClick={() => void toggleMicrophone()}>
+              {micEnabled ? <MicOff size={15} aria-hidden /> : <Mic size={15} aria-hidden />}
+              <span>{micEnabled ? '静音' : '加入语音'}</span>
+            </button>
+            {micError && <em>{micError}</em>}
+          </div>
+        )}
       </header>
 
       <Toolbar
@@ -1199,7 +1371,7 @@ export function Room() {
             setActiveTool('select');
           }}
         />
-        <CursorLayer />
+        <CursorLayer viewport={viewport} />
         <div className="board-help">
           <strong>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'}</strong>
           <span>Ctrl/Cmd click multi-select · Click a selected group item to edit inside · Ctrl/Cmd+/ shortcuts</span>

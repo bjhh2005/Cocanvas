@@ -116,6 +116,384 @@
   color: #b42318;
 }
 
+.room-console {
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 26px 0 34px;
+  text-align: left;
+}
+
+.console-header,
+.room-list-panel header,
+.room-form-panel header,
+.join-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.console-header {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+
+.console-header h1 {
+  margin: 4px 0 8px;
+  font-size: 34px;
+  letter-spacing: 0;
+}
+
+.console-header p:last-child {
+  max-width: 740px;
+  color: #52606d;
+}
+
+.console-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.identity-card,
+.room-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #d6dde7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.identity-card {
+  min-width: 350px;
+  padding: 8px 10px;
+}
+
+.identity-card input,
+.room-identity input {
+  min-width: 0;
+  border: 0;
+  color: #172033;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  outline: none;
+}
+
+.identity-card input {
+  width: 118px;
+}
+
+.room-identity input {
+  width: 100px;
+}
+
+.color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.color-swatches button {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  cursor: pointer;
+}
+
+.color-swatches.compact button {
+  width: 15px;
+  height: 15px;
+}
+
+.color-swatches button.active {
+  box-shadow: 0 0 0 2px #172033;
+}
+
+.ghost-action,
+.room-form-panel header button,
+.row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d6dde7;
+  border-radius: 8px;
+  color: #172033;
+  background: white;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ghost-action {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.room-console-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(300px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.room-form-panel,
+.join-panel,
+.room-list-panel,
+.room-gate-panel {
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.room-form-panel,
+.join-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.join-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.room-form-panel header strong,
+.join-panel header strong,
+.room-list-panel header strong {
+  font-size: 17px;
+}
+
+.room-form-panel header button {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.room-form-panel label,
+.join-stack {
+  display: grid;
+  gap: 7px;
+}
+
+.room-form-panel label span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.room-form-panel input,
+.room-form-panel select,
+.join-stack input,
+.gate-form input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d6dde7;
+  border-radius: 8px;
+  padding: 10px 11px;
+  color: #172033;
+  background: white;
+  font: inherit;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.toggle-field {
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: center;
+  gap: 10px !important;
+}
+
+.toggle-field input {
+  width: 16px;
+  height: 16px;
+}
+
+.join-stack button,
+.gate-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  min-height: 40px;
+  color: white;
+  background: #145c4a;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.room-list-panel {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.room-list-panel header span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.room-table {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.room-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.1fr) minmax(360px, 1.4fr) 126px auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 66px;
+  padding: 12px 14px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.room-main {
+  display: grid;
+  gap: 6px;
+}
+
+.room-main span,
+.room-badges span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.room-main strong {
+  color: #172033;
+}
+
+.room-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.room-badges span {
+  padding: 5px 8px;
+  border: 1px solid #e1e6ee;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.room-row time {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.row-actions button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.empty-rooms {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 88px;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.room-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 24px;
+  background: #f7f8fa;
+}
+
+.room-gate-panel {
+  width: min(460px, 100%);
+  padding: 24px;
+}
+
+.room-gate-panel h1 {
+  margin: 18px 0 10px;
+  font-size: 28px;
+}
+
+.gate-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.meeting-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid #d7e1ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.room-identity {
+  min-height: 42px;
+  padding: 7px 10px;
+}
+
+.meeting-strip span {
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.meeting-strip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: white;
+  background: #145c4a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.meeting-strip em {
+  color: #b42318;
+  font-size: 12px;
+  font-style: normal;
+}
+
 .echo-controls {
   display: flex;
   gap: 12px;
@@ -1138,6 +1516,53 @@ kbd {
   .room-actions {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .room-console {
+    width: min(100% - 24px, 1180px);
+    padding: 22px 0;
+  }
+
+  .console-header,
+  .room-console-grid,
+  .field-row,
+  .room-row {
+    grid-template-columns: 1fr;
+  }
+
+  .console-header,
+  .room-row {
+    align-items: flex-start;
+  }
+
+  .console-actions,
+  .identity-card {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .identity-card {
+    min-width: 0;
+  }
+
+  .identity-card input {
+    width: 100%;
+  }
+
+  .room-badges {
+    align-items: flex-start;
+  }
+
+  .whiteboard-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-left: 92px;
+  }
+
+  .meeting-strip {
+    min-width: 0;
+    flex-wrap: wrap;
   }
 
   .echo-controls button,
