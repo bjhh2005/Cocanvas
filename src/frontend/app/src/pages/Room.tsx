@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
+import { MeetingBar } from '../components/MeetingBar';
 import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
 import { UserIdentityEditor } from '../components/UserIdentityEditor';
@@ -1874,10 +1875,16 @@ export function Room() {
           }}
         />
         <CursorLayer viewport={viewport} />
-        <div className="board-help">
-          <strong>{activeMeetingPhase.label}: {activeMeetingPhase.hint}</strong>
-          <span>{activeTool === 'hand' ? 'Drag to pan' : 'Drag tools from the left or click canvas to create'} · Ctrl/Cmd click multi-select · Ctrl/Cmd+/ shortcuts</span>
-        </div>
+        <MeetingBar
+          phases={phases}
+          activePhaseId={activePhaseId}
+          activePhaseIndex={phases.findIndex((p) => p.id === activePhaseId)}
+          userId={userId}
+          displayName={displayName}
+          color={color}
+          onPhaseChange={handlePhaseChange}
+          onPhaseStep={handlePhaseStep}
+        />
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
           <button type="button" title="Zoom out" onClick={() => zoomBy(0.9)}><ZoomOut size={16} aria-hidden /></button>
