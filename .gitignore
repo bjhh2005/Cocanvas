@@ -10,3 +10,4 @@ out/
 .env
 src/backend/.env
 .run-*.log
+/others
