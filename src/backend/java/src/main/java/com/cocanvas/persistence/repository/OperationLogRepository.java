@@ -13,6 +13,12 @@ public interface OperationLogRepository extends JpaRepository<OperationLogEntity
             long at
     );
 
+    List<OperationLogEntity> findByRoomIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
+            String roomId,
+            long after,
+            long at
+    );
+
     List<OperationLogEntity> findByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
             String roomId,
             long at

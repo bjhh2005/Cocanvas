@@ -24,13 +24,19 @@ type CrdtShape = {
   };
 };
 
+type SnapshotAttrValue = ShapeAttrs[keyof ShapeAttrs] | {
+  value: ShapeAttrs[keyof ShapeAttrs];
+  hlc?: string;
+  writerId?: string;
+};
+
 type ShapeState = {
   crdtShapes: Record<string, CrdtShape>;
   shapes: Record<string, CanvasShape>;
   selectedId: string | null;
   selectedIds: string[];
   applyOp: (op: ShapeOperation) => void;
-  replaceWithSnapshot: (snapshot: Record<string, Record<string, unknown>>) => void;
+  replaceWithSnapshot: (snapshot: Record<string, Record<string, SnapshotAttrValue>>) => void;
   setSelectedId: (shapeId: string | null) => void;
   setSelectedIds: (shapeIds: string[]) => void;
   toggleSelectedId: (shapeId: string) => void;
@@ -242,10 +248,20 @@ export const useShapeStore = create<ShapeState>((set) => ({
             id: shapeId,
             type: shapeType,
             attrs: Object.fromEntries(
-              Object.entries(mergedAttrs).map(([key, value]) => [
-                key,
-                { value: value as ShapeAttrs[keyof ShapeAttrs], hlc: 'snapshot', writerId: 'history' },
-              ])
+              Object.entries(mergedAttrs).map(([key, raw]) => {
+                const versioned = raw && typeof raw === 'object' && !Array.isArray(raw) && 'value' in raw
+                  ? raw as { value: ShapeAttrs[keyof ShapeAttrs]; hlc?: string; writerId?: string }
+                  : null;
+
+                return [
+                  key,
+                  {
+                    value: versioned ? versioned.value : raw as ShapeAttrs[keyof ShapeAttrs],
+                    hlc: versioned?.hlc ?? '',
+                    writerId: versioned?.writerId ?? 'history',
+                  },
+                ];
+              })
             ) as CrdtShape['attrs'],
           },
         ];

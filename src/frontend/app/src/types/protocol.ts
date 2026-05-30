@@ -137,6 +137,12 @@ export type OpBroadcastMessage = {
   op: ShapeOperation;
 };
 
+export type OpAckMessage = {
+  type: 'op-ack';
+  opId?: string;
+  hlc: string;
+};
+
 export type ShapePreviewBroadcastMessage = {
   type: 'shape-preview';
   userId: string;
@@ -155,5 +161,6 @@ export type ServerMessage =
   | PeerLeftMessage
   | CursorBroadcastMessage
   | OpBroadcastMessage
+  | OpAckMessage
   | ShapePreviewBroadcastMessage
   | ErrorMessage;

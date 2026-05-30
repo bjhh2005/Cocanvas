@@ -3,6 +3,7 @@ package com.cocanvas.cluster;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 public class RedisNodeRegistry implements NodeRegistry {
 
     private static final String NODE_KEY_PREFIX = "cocanvas:nodes:";
+    private static final String NODE_INDEX_KEY = "cocanvas:nodes";
 
     private final NodeIdentity nodeIdentity;
     private final StringRedisTemplate redisTemplate;
@@ -48,16 +50,31 @@ public class RedisNodeRegistry implements NodeRegistry {
                 objectMapper.writeValueAsString(nodeInfo),
                 Duration.ofSeconds(15)
         );
+        redisTemplate.opsForSet().add(NODE_INDEX_KEY, nodeInfo.nodeId());
     }
 
     @Override
     public List<NodeInfo> aliveNodes() {
-        return redisTemplate.keys(NODE_KEY_PREFIX + "*").stream()
-                .map(key -> redisTemplate.opsForValue().get(key))
-                .filter(Objects::nonNull)
-                .map(this::readNode)
+        Set<String> nodeIds = redisTemplate.opsForSet().members(NODE_INDEX_KEY);
+        if (nodeIds == null || nodeIds.isEmpty()) {
+            return List.of();
+        }
+
+        return nodeIds.stream()
+                .map(this::readAliveNode)
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private NodeInfo readAliveNode(String nodeId) {
+        String key = NODE_KEY_PREFIX + nodeId;
+        String json = redisTemplate.opsForValue().get(key);
+        if (json == null) {
+            redisTemplate.opsForSet().remove(NODE_INDEX_KEY, nodeId);
+            return null;
+        }
+
+        return readNode(json);
     }
 
     private NodeInfo readNode(String json) {

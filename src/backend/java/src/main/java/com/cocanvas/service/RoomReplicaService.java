@@ -3,6 +3,7 @@ package com.cocanvas.service;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
 
 import com.cocanvas.crdt.HybridLogicalClock;
 import com.cocanvas.protocol.common.ShapeOperation;
@@ -22,6 +23,14 @@ public class RoomReplicaService {
         String mergedHlc = clock.update(hlc);
         applyMerged(roomId, mergedHlc, userId, op);
         return mergedHlc;
+    }
+
+    public String mergeHlc(String hlc) {
+        return clock.update(hlc);
+    }
+
+    public void applyCommitted(String roomId, String mergedHlc, String userId, ShapeOperation op) {
+        applyMerged(roomId, mergedHlc, userId, op);
     }
 
     public void applyRemote(String roomId, String mergedHlc, String userId, ShapeOperation op) {
@@ -82,6 +91,28 @@ public class RoomReplicaService {
 
             Map<String, Object> attrs = new ConcurrentHashMap<>();
             shape.attrs().forEach((key, value) -> attrs.put(key, value.value()));
+            attrs.put("shapeType", shape.shapeType());
+            snapshot.put(shapeId, attrs);
+        });
+        return snapshot;
+    }
+
+    public Map<String, Map<String, Object>> versionedSnapshot(String roomId) {
+        Map<String, ReplicatedShape> shapes = rooms.getOrDefault(roomId, Map.of());
+        Map<String, Map<String, Object>> snapshot = new ConcurrentHashMap<>();
+        shapes.forEach((shapeId, shape) -> {
+            if (shape.tombstoneHlc() != null) {
+                return;
+            }
+
+            Map<String, Object> attrs = new ConcurrentHashMap<>();
+            shape.attrs().forEach((key, value) -> {
+                Map<String, Object> versionedValue = new HashMap<>();
+                versionedValue.put("value", value.value());
+                versionedValue.put("hlc", value.hlc());
+                versionedValue.put("writerId", value.writerId());
+                attrs.put(key, versionedValue);
+            });
             attrs.put("shapeType", shape.shapeType());
             snapshot.put(shapeId, attrs);
         });

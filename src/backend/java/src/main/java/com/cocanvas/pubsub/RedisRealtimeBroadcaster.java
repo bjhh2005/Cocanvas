@@ -1,6 +1,8 @@
 package com.cocanvas.pubsub;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 import com.cocanvas.cluster.NodeIdentity;
 import com.cocanvas.ws.RoomSessionRegistry;
@@ -14,7 +16,8 @@ import org.springframework.web.socket.WebSocketSession;
 @ConditionalOnProperty(name = "realtime.broadcaster", havingValue = "redis")
 public class RedisRealtimeBroadcaster implements RealtimeBroadcaster {
 
-    public static final String CHANNEL = "cocanvas:room-events";
+    public static final String CHANNEL_PREFIX = "cocanvas:room-events:";
+    public static final int CHANNEL_SHARDS = 64;
 
     private final RoomSessionRegistry registry;
     private final ObjectMapper objectMapper;
@@ -38,8 +41,26 @@ public class RedisRealtimeBroadcaster implements RealtimeBroadcaster {
         String payload = objectMapper.writeValueAsString(outbound);
         registry.broadcastInRoom(roomId, payload, exceptSession);
         redisTemplate.convertAndSend(
-                CHANNEL,
+                channelFor(roomId),
                 objectMapper.writeValueAsString(new RoomBroadcastEvent(roomId, payload, nodeIdentity.nodeId()))
         );
+    }
+
+    public static String channelFor(String roomId) {
+        return CHANNEL_PREFIX + Math.floorMod(hash(roomId), CHANNEL_SHARDS);
+    }
+
+    private static int hash(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            int result = 0;
+            for (int index = 0; index < 4; index += 1) {
+                result = (result << 8) | (bytes[index] & 0xff);
+            }
+            return result;
+        } catch (Exception e) {
+            return value.hashCode();
+        }
     }
 }

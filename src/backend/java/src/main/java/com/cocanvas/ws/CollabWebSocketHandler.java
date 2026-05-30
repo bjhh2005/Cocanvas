@@ -12,6 +12,7 @@ import com.cocanvas.protocol.inbound.ShapePreviewMessage;
 import com.cocanvas.protocol.outbound.CursorBroadcastMessage;
 import com.cocanvas.protocol.outbound.ErrorMessage;
 import com.cocanvas.protocol.outbound.JoinedMessage;
+import com.cocanvas.protocol.outbound.OpAckMessage;
 import com.cocanvas.protocol.outbound.OpBroadcastMessage;
 import com.cocanvas.protocol.outbound.PeerJoinedMessage;
 import com.cocanvas.protocol.outbound.PeerLeftMessage;
@@ -147,10 +148,14 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String mergedHlc = replicaService.apply(roomId, message.hlc(), userId, message.op());
-        if (historyService != null) {
-            historyService.recordOperation(roomId, userId, mergedHlc, message.op());
+        String mergedHlc = replicaService.mergeHlc(message.hlc());
+        if (historyService != null && !historyService.tryRecordOperation(roomId, userId, mergedHlc, message.op())) {
+            send(session, new ErrorMessage("op_persist_failed", "Operation was not persisted; retry after reconnect"));
+            return;
         }
+
+        replicaService.applyCommitted(roomId, mergedHlc, userId, message.op());
+        send(session, new OpAckMessage(message.op().opId(), mergedHlc));
         broadcaster.broadcast(
                 roomId,
                 new OpBroadcastMessage(userId, mergedHlc, message.op()),

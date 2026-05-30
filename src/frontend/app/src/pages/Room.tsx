@@ -56,6 +56,7 @@ import { createShapeOp } from '../whiteboard/shapeFactory';
 const cursorIntervalMs = 50;
 const shapePreviewIntervalMs = 50;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
+const pendingOpsStoragePrefix = 'cocanvas:pending-ops:';
 const draggableCreateTools = new Set<ToolMode>([
   'sticky',
   'card',
@@ -131,7 +132,7 @@ const resolveWsUrl = (wsUrl: string) => {
 const parseSnapshotPayload = (payload: string) => {
   const parsed = JSON.parse(payload || '{}') as unknown;
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    return parsed as Record<string, Record<string, unknown>>;
+    return parsed as Parameters<ReturnType<typeof useShapeStore.getState>['replaceWithSnapshot']>[0];
   }
 
   return {};
@@ -404,6 +405,41 @@ export function Room() {
     return { ...op, opId: op.opId ?? msgId(), hlc, writerId: userId };
   }, [userId]);
 
+  const pendingOpsStorageKey = useMemo(() => (
+    roomId && userId ? `${pendingOpsStoragePrefix}${roomId}:${userId}` : ''
+  ), [roomId, userId]);
+
+  const persistPendingOps = useCallback((ops: ShapeOperation[]) => {
+    if (!pendingOpsStorageKey) {
+      return;
+    }
+
+    if (ops.length === 0) {
+      window.localStorage.removeItem(pendingOpsStorageKey);
+      return;
+    }
+
+    window.localStorage.setItem(pendingOpsStorageKey, JSON.stringify(ops));
+  }, [pendingOpsStorageKey]);
+
+  useEffect(() => {
+    if (!pendingOpsStorageKey) {
+      pendingOpsRef.current = [];
+      return;
+    }
+
+    try {
+      const stored = window.localStorage.getItem(pendingOpsStorageKey);
+      pendingOpsRef.current = stored ? JSON.parse(stored) as ShapeOperation[] : [];
+      if (pendingOpsRef.current.length > 0) {
+        setEvents((current) => [`restored pending ops: ${pendingOpsRef.current.length}`, ...current].slice(0, 5));
+      }
+    } catch {
+      pendingOpsRef.current = [];
+      window.localStorage.removeItem(pendingOpsStorageKey);
+    }
+  }, [pendingOpsStorageKey]);
+
   const sendStampedOp = useCallback((client: WSClient, op: ShapeOperation) => {
     client.sendJson({
       type: 'op',
@@ -491,7 +527,6 @@ export function Room() {
 
   const flushPendingOps = useCallback((client: WSClient) => {
     const pendingOps = pendingOpsRef.current;
-    pendingOpsRef.current = [];
     pendingOps.forEach((op) => {
       applyOp(op);
       sendStampedOp(client, op);
@@ -499,9 +534,30 @@ export function Room() {
     return pendingOps.length;
   }, [applyOp, sendStampedOp]);
 
+  const acknowledgePendingOp = useCallback((opId: string | undefined, hlc: string) => {
+    if (!opId) {
+      return;
+    }
+
+    const acknowledged = pendingOpsRef.current.find((op) => op.opId === opId);
+    if (acknowledged) {
+      hlcRef.current?.update(hlc);
+      applyOp({ ...acknowledged, hlc, writerId: userId });
+    }
+
+    const next = pendingOpsRef.current.filter((op) => op.opId !== opId);
+    if (next.length === pendingOpsRef.current.length) {
+      return;
+    }
+
+    pendingOpsRef.current = next;
+    persistPendingOps(next);
+  }, [applyOp, persistPendingOps, userId]);
+
   const queuePendingOp = useCallback((op: ShapeOperation) => {
     if (op.opType !== 'update') {
       pendingOpsRef.current.push(op);
+      persistPendingOps(pendingOpsRef.current);
       return pendingOpsRef.current.length;
     }
 
@@ -520,20 +576,22 @@ export function Room() {
           ...op.attrs,
         },
       };
+      persistPendingOps(pendingOpsRef.current);
       return pendingOpsRef.current.length;
     }
 
     pendingOpsRef.current.push(op);
+    persistPendingOps(pendingOpsRef.current);
     return pendingOpsRef.current.length;
-  }, []);
+  }, [persistPendingOps]);
 
   const sendShapeOp = useCallback((op: ShapeOperation) => {
     const inverseOp = buildInverseOp(op);
     recordHistoryOp(op, inverseOp);
     const stampedOp = stampOp(op);
     applyOp(stampedOp);
+    const pendingCount = queuePendingOp(stampedOp);
     if (status !== 'connected' || !wsClient) {
-      const pendingCount = queuePendingOp(stampedOp);
       setEvents((current) => [`queued offline op: ${pendingCount}`, ...current].slice(0, 5));
       return;
     }
@@ -759,6 +817,11 @@ export function Room() {
           return;
         }
 
+        if (message.type === 'op-ack') {
+          acknowledgePendingOp(message.opId, message.hlc);
+          return;
+        }
+
         if (message.type === 'shape-preview') {
           const { points, stroke, strokeWidth, x, y } = message.op.attrs ?? {};
           if (message.op.shapeType === 'pen' && Array.isArray(points) && points.length >= 4) {
@@ -784,6 +847,9 @@ export function Room() {
 
         if (message.type === 'error') {
           setEvents((current) => [`error: ${message.message}`, ...current].slice(0, 5));
+          if (message.code === 'op_persist_failed') {
+            client?.close();
+          }
         }
       });
 
@@ -813,7 +879,7 @@ export function Room() {
       setClient(null);
       setRoomId(null);
     };
-  }, [addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
+  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
 
   useEffect(() => {
     if (roomAccessState !== 'ready') {
@@ -1034,9 +1100,9 @@ export function Room() {
       return next;
     });
     applyOp(stampedOp);
+    const pendingCount = queuePendingOp(stampedOp);
 
     if (status !== 'connected' || !wsClient) {
-      const pendingCount = queuePendingOp(stampedOp);
       setEvents((current) => [`queued offline op: ${pendingCount}`, ...current].slice(0, 5));
       return;
     }

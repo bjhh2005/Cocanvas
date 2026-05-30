@@ -8,6 +8,8 @@ import com.cocanvas.persistence.entity.SnapshotEntity;
 import com.cocanvas.persistence.repository.OperationLogRepository;
 import com.cocanvas.persistence.repository.SnapshotRepository;
 import com.cocanvas.protocol.common.ShapeOperation;
+import com.cocanvas.routing.NodeRouter;
+import com.cocanvas.cluster.NodeIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,26 +22,36 @@ public class HistoryService {
     private final SnapshotRepository snapshotRepository;
     private final RoomReplicaService replicaService;
     private final ObjectMapper objectMapper;
+    private final NodeRouter nodeRouter;
+    private final NodeIdentity nodeIdentity;
 
     public HistoryService(
             OperationLogRepository operationLogRepository,
             SnapshotRepository snapshotRepository,
             RoomReplicaService replicaService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            NodeRouter nodeRouter,
+            NodeIdentity nodeIdentity
     ) {
         this.operationLogRepository = operationLogRepository;
         this.snapshotRepository = snapshotRepository;
         this.replicaService = replicaService;
         this.objectMapper = objectMapper;
+        this.nodeRouter = nodeRouter;
+        this.nodeIdentity = nodeIdentity;
     }
 
     public void recordOperation(String roomId, String userId, String hlc, ShapeOperation op) {
+        tryRecordOperation(roomId, userId, hlc, op);
+    }
+
+    public boolean tryRecordOperation(String roomId, String userId, String hlc, ShapeOperation op) {
         try {
             String opId = op.opId() == null || op.opId().isBlank()
                     ? UUID.randomUUID().toString()
                     : op.opId();
             if (operationLogRepository.existsById(opId)) {
-                return;
+                return true;
             }
 
             OperationLogEntity entity = new OperationLogEntity();
@@ -53,10 +65,11 @@ public class HistoryService {
             entity.setCreatedAt(System.currentTimeMillis());
             entity.setPayload(objectMapper.writeValueAsString(op));
             operationLogRepository.save(entity);
+            return true;
         } catch (DataIntegrityViolationException ignored) {
-            // Duplicate opId means a pending operation was replayed after reconnect; the first write wins.
+            return true;
         } catch (Exception ignored) {
-            // Persistence is best-effort during early demo stages; realtime collaboration should keep flowing.
+            return false;
         }
     }
 
@@ -66,26 +79,36 @@ public class HistoryService {
     }
 
     public HistoryResponse history(String roomId, long at) {
+        HistorySnapshot snapshot = snapshotRepository
+                .findFirstByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(roomId, at)
+                .map(this::toHistorySnapshot)
+                .orElseGet(() -> new HistorySnapshot("replay-from-start-" + roomId, "", 0, "{}"));
+
         List<HistoryOp> ops = operationLogRepository
-                .findByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtAsc(roomId, at)
+                .findByRoomIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanEqualOrderByCreatedAtAsc(
+                        roomId,
+                        snapshot.createdAt(),
+                        at
+                )
                 .stream()
                 .map(this::toHistoryOp)
                 .toList();
 
-        return new HistoryResponse(
-                new HistorySnapshot("replay-from-start-" + roomId, "", 0, "{}"),
-                ops
-        );
+        return new HistoryResponse(snapshot, ops);
     }
 
     private void saveSnapshot(String roomId) {
         try {
+            if (!nodeIdentity.nodeId().equals(nodeRouter.routeRoom(roomId).nodeId())) {
+                return;
+            }
+
             SnapshotEntity entity = new SnapshotEntity();
             entity.setSnapshotId(UUID.randomUUID().toString());
             entity.setRoomId(roomId);
             entity.setCreatedAt(System.currentTimeMillis());
             entity.setHlc("");
-            entity.setPayload(objectMapper.writeValueAsString(replicaService.snapshot(roomId)));
+            entity.setPayload(objectMapper.writeValueAsString(replicaService.versionedSnapshot(roomId)));
             snapshotRepository.save(entity);
         } catch (Exception ignored) {
             // Snapshotting should never interrupt live collaboration.
@@ -96,6 +119,15 @@ public class HistoryService {
         return new HistoryOp(
                 entity.getOpId(),
                 entity.getUserId(),
+                entity.getHlc(),
+                entity.getCreatedAt(),
+                entity.getPayload()
+        );
+    }
+
+    private HistorySnapshot toHistorySnapshot(SnapshotEntity entity) {
+        return new HistorySnapshot(
+                entity.getSnapshotId(),
                 entity.getHlc(),
                 entity.getCreatedAt(),
                 entity.getPayload()

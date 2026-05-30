@@ -22,7 +22,12 @@ public class RedisPubSubConfig {
     ) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
-        container.addMessageListener(subscriber, new ChannelTopic(RedisRealtimeBroadcaster.CHANNEL));
+        for (int shard = 0; shard < RedisRealtimeBroadcaster.CHANNEL_SHARDS; shard += 1) {
+            container.addMessageListener(
+                    subscriber,
+                    new ChannelTopic(RedisRealtimeBroadcaster.CHANNEL_PREFIX + shard)
+            );
+        }
         return container;
     }
 }
