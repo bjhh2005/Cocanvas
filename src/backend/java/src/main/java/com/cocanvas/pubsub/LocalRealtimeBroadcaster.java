@@ -24,4 +24,9 @@ public class LocalRealtimeBroadcaster implements RealtimeBroadcaster {
     public void broadcast(String roomId, Object outbound, WebSocketSession exceptSession) throws IOException {
         registry.broadcastInRoom(roomId, objectMapper.writeValueAsString(outbound), exceptSession);
     }
+
+    @Override
+    public void broadcastTransient(String roomId, Object outbound, WebSocketSession exceptSession) throws IOException {
+        registry.broadcastTransientInRoom(roomId, objectMapper.writeValueAsString(outbound), exceptSession);
+    }
 }

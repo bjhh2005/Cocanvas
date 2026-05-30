@@ -19,7 +19,9 @@ import com.cocanvas.protocol.outbound.PeerLeftMessage;
 import com.cocanvas.protocol.outbound.ShapePreviewBroadcastMessage;
 import com.cocanvas.pubsub.RealtimeBroadcaster;
 import com.cocanvas.service.HistoryService;
+import com.cocanvas.service.JoinTokenService;
 import com.cocanvas.service.RoomReplicaService;
+import com.cocanvas.service.RoomService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,8 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final RoomReplicaService replicaService;
     private final RealtimeBroadcaster broadcaster;
+    private final JoinTokenService joinTokenService;
+    private final RoomService roomService;
     private final HistoryService historyService;
 
     public CollabWebSocketHandler(
@@ -45,12 +49,16 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
             ObjectMapper objectMapper,
             RoomReplicaService replicaService,
             RealtimeBroadcaster broadcaster,
+            JoinTokenService joinTokenService,
+            RoomService roomService,
             org.springframework.beans.factory.ObjectProvider<HistoryService> historyServiceProvider
     ) {
         this.registry = registry;
         this.objectMapper = objectMapper;
         this.replicaService = replicaService;
         this.broadcaster = broadcaster;
+        this.joinTokenService = joinTokenService;
+        this.roomService = roomService;
         this.historyService = historyServiceProvider.getIfAvailable();
     }
 
@@ -101,11 +109,19 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void handleJoin(WebSocketSession session, JoinMessage message) throws IOException {
+        var claims = joinTokenService.verify(message.roomId(), message.joinToken());
+        if (!claims.valid()) {
+            sendImmediate(session, new ErrorMessage("invalid_join_token", "Join token is missing, invalid, or expired"));
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
         Map<String, Object> attributes = session.getAttributes();
         attributes.put(RoomSessionRegistry.ROOM_ID, message.roomId());
         attributes.put(RoomSessionRegistry.USER_ID, message.userId());
         attributes.put(RoomSessionRegistry.DISPLAY_NAME, message.displayName());
         attributes.put(RoomSessionRegistry.COLOR, message.color());
+        attributes.put(RoomSessionRegistry.PERMISSION_MODE, claims.permissionMode());
 
         PeerInfo you = new PeerInfo(message.userId(), message.displayName(), message.color());
         var peers = registry.peers(message.roomId(), session);
@@ -131,7 +147,7 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
 
         String displayName = attribute(attributes, RoomSessionRegistry.DISPLAY_NAME);
         String color = attribute(attributes, RoomSessionRegistry.COLOR);
-        broadcaster.broadcast(
+        broadcaster.broadcastTransient(
                 roomId,
                 new CursorBroadcastMessage(userId, displayName, color, message.x(), message.y()),
                 session
@@ -145,6 +161,12 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
 
         if (roomId == null || userId == null) {
             send(session, new ErrorMessage("not_joined", "Send join before op"));
+            return;
+        }
+
+        String permissionMode = attribute(attributes, RoomSessionRegistry.PERMISSION_MODE);
+        if (!roomService.canWrite(permissionMode, message.op().opType(), message.op().shapeType())) {
+            send(session, new ErrorMessage("permission_denied", "Room permission does not allow this operation"));
             return;
         }
 
@@ -173,7 +195,7 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        broadcaster.broadcast(
+        broadcaster.broadcastTransient(
                 roomId,
                 new ShapePreviewBroadcastMessage(userId, message.op()),
                 session
@@ -181,6 +203,14 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void send(WebSocketSession session, Object outbound) throws IOException {
+        registry.send(session, serialize(outbound));
+    }
+
+    private void sendImmediate(WebSocketSession session, Object outbound) throws IOException {
+        if (!session.isOpen()) {
+            return;
+        }
+
         synchronized (session) {
             session.sendMessage(new TextMessage(serialize(outbound)));
         }

@@ -178,12 +178,20 @@ export function Room() {
   const [events, setEvents] = useState<string[]>([]);
   const [historyAt, setHistoryAt] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPreview, setHistoryPreview] = useState<{ snapshotId: string; snapshotShapes: number; ops: number; at: number } | null>(null);
   const [roomName, setRoomName] = useState('');
   const [roomWsUrl, setRoomWsUrl] = useState('');
+  const [joinToken, setJoinToken] = useState('');
+  const [lastRestoredOps, setLastRestoredOps] = useState(0);
+  const [lastReplayedOps, setLastReplayedOps] = useState(0);
+  const [lastFlushedOps, setLastFlushedOps] = useState(0);
+  const [pendingOpsCount, setPendingOpsCount] = useState(0);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [roomPassword, setRoomPassword] = useState(() => searchParams.get('password') ?? '');
   const [roomAccessState, setRoomAccessState] = useState<'checking' | 'ready' | 'password' | 'missing'>('checking');
   const [roomPasswordError, setRoomPasswordError] = useState<string | null>(null);
   const [roomVoiceEnabled, setRoomVoiceEnabled] = useState(false);
+  const [roomPermissionMode, setRoomPermissionMode] = useState('edit');
   const [micEnabled, setMicEnabled] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState(() => ({
@@ -327,6 +335,16 @@ export function Room() {
     return history.ops.length;
   }, [applyOp, replaceWithSnapshot]);
 
+  const summarizeHistoryState = useCallback((history: HistoryResponse, at: number) => {
+    const snapshot = parseSnapshotPayload(history.snapshot.payload);
+    return {
+      snapshotId: history.snapshot.snapshotId,
+      snapshotShapes: Object.keys(snapshot).length,
+      ops: history.ops.length,
+      at,
+    };
+  }, []);
+
   const verifyRoomAccess = useCallback(async (password?: string) => {
     if (!roomId) {
       setRoomAccessState('missing');
@@ -343,19 +361,22 @@ export function Room() {
 
     setRoomName(room.name);
     setRoomVoiceEnabled(room.voiceEnabled);
+    setRoomPermissionMode(room.permissionMode || 'edit');
     if (!room.authorized) {
       setRoomWsUrl('');
+      setJoinToken('');
       setRoomAccessState('password');
       return room;
     }
 
     setRoomWsUrl(room.wsUrl);
+    setJoinToken(room.joinToken);
     setRoomAccessState('ready');
     return room;
   }, [roomId]);
 
   const restoreLatestState = useCallback(async () => {
-    const history = await getRoomHistory(roomId, Date.now());
+    const history = await getRoomHistory(roomId);
     return applyHistoryState(history);
   }, [applyHistoryState, roomId]);
 
@@ -410,6 +431,7 @@ export function Room() {
   ), [roomId, userId]);
 
   const persistPendingOps = useCallback((ops: ShapeOperation[]) => {
+    setPendingOpsCount(ops.length);
     if (!pendingOpsStorageKey) {
       return;
     }
@@ -431,11 +453,13 @@ export function Room() {
     try {
       const stored = window.localStorage.getItem(pendingOpsStorageKey);
       pendingOpsRef.current = stored ? JSON.parse(stored) as ShapeOperation[] : [];
+      setPendingOpsCount(pendingOpsRef.current.length);
       if (pendingOpsRef.current.length > 0) {
         setEvents((current) => [`restored pending ops: ${pendingOpsRef.current.length}`, ...current].slice(0, 5));
       }
     } catch {
       pendingOpsRef.current = [];
+      setPendingOpsCount(0);
       window.localStorage.removeItem(pendingOpsStorageKey);
     }
   }, [pendingOpsStorageKey]);
@@ -586,6 +610,11 @@ export function Room() {
   }, [persistPendingOps]);
 
   const sendShapeOp = useCallback((op: ShapeOperation) => {
+    if (roomPermissionMode === 'view' || (roomPermissionMode === 'comment' && op.shapeType !== 'comment')) {
+      setEvents((current) => ['permission denied locally', ...current].slice(0, 5));
+      return;
+    }
+
     const inverseOp = buildInverseOp(op);
     recordHistoryOp(op, inverseOp);
     const stampedOp = stampOp(op);
@@ -597,7 +626,7 @@ export function Room() {
     }
 
     sendStampedOp(wsClient, stampedOp);
-  }, [applyOp, buildInverseOp, queuePendingOp, recordHistoryOp, sendStampedOp, stampOp, status, wsClient]);
+  }, [applyOp, buildInverseOp, queuePendingOp, recordHistoryOp, roomPermissionMode, sendStampedOp, stampOp, status, wsClient]);
 
   const sendHistoryOps = useCallback((ops: ShapeOperation[]) => {
     historyReplayRef.current = true;
@@ -698,6 +727,7 @@ export function Room() {
       const attempt = reconnectAttemptRef.current;
       const delay = reconnectDelays[Math.min(attempt, reconnectDelays.length - 1)];
       reconnectAttemptRef.current = attempt + 1;
+      setReconnectAttempts(reconnectAttemptRef.current);
       setEvents((current) => [`reconnect in ${Math.round(delay / 1000)}s`, ...current].slice(0, 5));
       reconnectTimer = window.setTimeout(() => {
         cleanupSubscriptions?.();
@@ -725,6 +755,7 @@ export function Room() {
           const restoreGeneration = restoreGenerationRef.current + 1;
           restoreGenerationRef.current = restoreGeneration;
           reconnectAttemptRef.current = 0;
+          setReconnectAttempts(0);
           restoringRef.current = true;
           bufferedOpsRef.current = [];
           connectedClient?.sendJson({
@@ -734,6 +765,7 @@ export function Room() {
             userId,
             displayName,
             color,
+            joinToken,
           });
 
           void restoreLatestState()
@@ -750,6 +782,9 @@ export function Room() {
 
               const replayedOps = replayBufferedOps();
               const flushedOps = flushPendingOps(connectedClient);
+              setLastRestoredOps(restoredOps);
+              setLastReplayedOps(replayedOps);
+              setLastFlushedOps(flushedOps);
               window.requestAnimationFrame(fitViewportToContent);
               setEvents((current) => [
                 `state restored: ${restoredOps} ops, replayed ${replayedOps}, flushed ${flushedOps}`,
@@ -769,6 +804,9 @@ export function Room() {
 
               const replayedOps = replayBufferedOps();
               const flushedOps = flushPendingOps(connectedClient);
+              setLastRestoredOps(0);
+              setLastReplayedOps(replayedOps);
+              setLastFlushedOps(flushedOps);
               window.requestAnimationFrame(fitViewportToContent);
               setEvents((current) => [
                 `restore failed: ${err instanceof Error ? err.message : 'unknown'}, replayed ${replayedOps}, flushed ${flushedOps}`,
@@ -1089,6 +1127,11 @@ export function Room() {
   }, [activeGroupId, getGroupMemberIds, shapeMap]);
 
   const handleShapeCommit = (op: ShapeOperation) => {
+    if (roomPermissionMode === 'view' || (roomPermissionMode === 'comment' && op.shapeType !== 'comment')) {
+      setEvents((current) => ['permission denied locally', ...current].slice(0, 5));
+      return;
+    }
+
     const stampedOp = stampOp(op);
     setPreviewPositions((current) => {
       if (!current[stampedOp.shapeId]) {
@@ -1661,15 +1704,24 @@ export function Room() {
     setHistoryLoading(true);
     try {
       const history = await getRoomHistory(roomId, historyAt);
-      const appliedOps = applyHistoryState(history);
-      window.requestAnimationFrame(fitViewportToContent);
-      setEvents((current) => [`history loaded: ${appliedOps} ops`, ...current].slice(0, 5));
+      const preview = summarizeHistoryState(history, historyAt);
+      setHistoryPreview(preview);
+      setEvents((current) => [`history preview: ${preview.snapshotShapes} snapshot shapes + ${preview.ops} ops`, ...current].slice(0, 5));
     } catch (err) {
       setEvents((current) => [`history error: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
     } finally {
       setHistoryLoading(false);
     }
   };
+
+  const connectedNode = useMemo(() => {
+    if (!roomWsUrl) {
+      return 'n/a';
+    }
+
+    const match = roomWsUrl.match(/\/ws\/([^/]+)\//);
+    return match?.[1] ?? 'direct';
+  }, [roomWsUrl]);
 
   if (roomAccessState !== 'ready') {
     return (
@@ -1727,7 +1779,16 @@ export function Room() {
         <div className="room-stats">
           <span>WS: <strong>{status}</strong></span>
           <span>Peers: <strong>{remoteCount}</strong></span>
+          <span>Perm: <strong>{roomPermissionMode}</strong></span>
           <span>Tool: <strong>{activeTool}</strong></span>
+        </div>
+        <div className="collab-diagnostics" title={roomWsUrl || 'No websocket URL yet'}>
+          <span>Node <strong>{connectedNode}</strong></span>
+          <span>Reconnect <strong>{reconnectAttempts}</strong></span>
+          <span>Pending <strong>{pendingOpsCount}</strong></span>
+          <span>Restore <strong>{lastRestoredOps}</strong></span>
+          <span>Replay <strong>{lastReplayedOps}</strong></span>
+          <span>Flush <strong>{lastFlushedOps}</strong></span>
         </div>
         {roomVoiceEnabled && (
           <div className="meeting-strip">
@@ -1839,6 +1900,11 @@ export function Room() {
           {historyLoading ? <Download size={16} aria-hidden /> : <History size={16} aria-hidden />}
           <span>{historyLoading ? 'Loading' : 'Load'}</span>
         </button>
+        {historyPreview && (
+          <p className="history-preview">
+            Snapshot {historyPreview.snapshotShapes} / ops {historyPreview.ops}
+          </p>
+        )}
       </section>
 
       <ol className="room-events" aria-label="Room events">

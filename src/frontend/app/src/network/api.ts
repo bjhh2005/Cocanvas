@@ -7,6 +7,7 @@ export type CreateRoomResponse = {
   permissionMode: string;
   passwordProtected: boolean;
   voiceEnabled: boolean;
+  joinToken: string;
 };
 
 export type QueryRoomResponse = {
@@ -21,6 +22,7 @@ export type QueryRoomResponse = {
   permissionMode: string;
   passwordProtected: boolean;
   voiceEnabled: boolean;
+  joinToken: string;
 };
 
 export type RoomSummary = {
@@ -128,8 +130,9 @@ export const archiveRoom = async (roomId: string): Promise<void> => {
   }
 };
 
-export const getRoomHistory = async (roomId: string, at: number): Promise<HistoryResponse> => {
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/history?at=${at}`);
+export const getRoomHistory = async (roomId: string, at?: number): Promise<HistoryResponse> => {
+  const query = typeof at === 'number' ? `?at=${at}` : '';
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/history${query}`);
   if (!response.ok) {
     throw new Error('Failed to query history');
   }

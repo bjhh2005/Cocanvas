@@ -57,6 +57,7 @@ services:
       MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       MYSQL_USER: root
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
+      JOIN_TOKEN_SECRET: ${JOIN_TOKEN_SECRET:-cocanvas-dev-secret}
       NODE_PUBLIC_HOST: localhost
       NODE_PUBLIC_PORT: ${NGINX_HOST_PORT:-8088}
       NODE_PUBLIC_WS_PATH: /ws/backend1/collab
@@ -83,6 +84,7 @@ services:
       MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       MYSQL_USER: root
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
+      JOIN_TOKEN_SECRET: ${JOIN_TOKEN_SECRET:-cocanvas-dev-secret}
       NODE_PUBLIC_HOST: localhost
       NODE_PUBLIC_PORT: ${NGINX_HOST_PORT:-8088}
       NODE_PUBLIC_WS_PATH: /ws/backend2/collab

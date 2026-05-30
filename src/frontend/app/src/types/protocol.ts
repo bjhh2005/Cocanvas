@@ -11,6 +11,7 @@ export type JoinMessage = {
   userId: string;
   displayName: string;
   color: string;
+  joinToken: string;
 };
 
 export type CursorMessage = {

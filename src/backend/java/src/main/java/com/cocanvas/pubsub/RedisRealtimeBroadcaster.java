@@ -17,6 +17,7 @@ import org.springframework.web.socket.WebSocketSession;
 public class RedisRealtimeBroadcaster implements RealtimeBroadcaster {
 
     public static final String CHANNEL_PREFIX = "cocanvas:room-events:";
+    public static final String TRANSIENT_CHANNEL_PREFIX = "cocanvas:room-transient-events:";
     public static final int CHANNEL_SHARDS = 64;
 
     private final RoomSessionRegistry registry;
@@ -46,8 +47,22 @@ public class RedisRealtimeBroadcaster implements RealtimeBroadcaster {
         );
     }
 
+    @Override
+    public void broadcastTransient(String roomId, Object outbound, WebSocketSession exceptSession) throws IOException {
+        String payload = objectMapper.writeValueAsString(outbound);
+        registry.broadcastTransientInRoom(roomId, payload, exceptSession);
+        redisTemplate.convertAndSend(
+                transientChannelFor(roomId),
+                objectMapper.writeValueAsString(new RoomBroadcastEvent(roomId, payload, nodeIdentity.nodeId()))
+        );
+    }
+
     public static String channelFor(String roomId) {
         return CHANNEL_PREFIX + Math.floorMod(hash(roomId), CHANNEL_SHARDS);
+    }
+
+    public static String transientChannelFor(String roomId) {
+        return TRANSIENT_CHANNEL_PREFIX + Math.floorMod(hash(roomId), CHANNEL_SHARDS);
     }
 
     private static int hash(String value) {

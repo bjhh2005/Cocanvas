@@ -27,6 +27,10 @@ public class RedisPubSubConfig {
                     subscriber,
                     new ChannelTopic(RedisRealtimeBroadcaster.CHANNEL_PREFIX + shard)
             );
+            container.addMessageListener(
+                    subscriber,
+                    new ChannelTopic(RedisRealtimeBroadcaster.TRANSIENT_CHANNEL_PREFIX + shard)
+            );
         }
         return container;
     }

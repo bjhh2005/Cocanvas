@@ -5,6 +5,7 @@ import java.util.List;
 import com.cocanvas.cluster.NodeInfo;
 import com.cocanvas.persistence.entity.RoomEntity;
 import com.cocanvas.routing.NodeRouter;
+import com.cocanvas.service.JoinTokenService;
 import com.cocanvas.service.RoomService;
 import com.cocanvas.service.RoomService.CreateRoomCommand;
 import com.cocanvas.service.RoomService.RoomNotFoundException;
@@ -25,10 +26,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class RoomController {
 
     private final NodeRouter nodeRouter;
+    private final JoinTokenService joinTokenService;
     private final RoomService roomService;
 
-    public RoomController(NodeRouter nodeRouter, RoomService roomService) {
+    public RoomController(NodeRouter nodeRouter, JoinTokenService joinTokenService, RoomService roomService) {
         this.nodeRouter = nodeRouter;
+        this.joinTokenService = joinTokenService;
         this.roomService = roomService;
     }
 
@@ -99,11 +102,13 @@ public class RoomController {
                 room.getAccessMode(),
                 room.getPermissionMode(),
                 room.getPasswordHash() != null,
-                room.isVoiceEnabled()
+                room.isVoiceEnabled(),
+                joinTokenService.issue(room.getRoomId(), room.getPermissionMode())
         );
     }
 
     private QueryRoomResponse toQueryResponse(RoomEntity room, boolean authorized) {
+        String token = authorized ? joinTokenService.issue(room.getRoomId(), room.getPermissionMode()) : "";
         return new QueryRoomResponse(
                 room.getRoomId(),
                 true,
@@ -115,7 +120,8 @@ public class RoomController {
                 room.getAccessMode(),
                 room.getPermissionMode(),
                 room.getPasswordHash() != null,
-                room.isVoiceEnabled()
+                room.isVoiceEnabled(),
+                token
         );
     }
 
@@ -179,7 +185,8 @@ public class RoomController {
             String accessMode,
             String permissionMode,
             boolean passwordProtected,
-            boolean voiceEnabled
+            boolean voiceEnabled,
+            String joinToken
     ) {
     }
 
@@ -194,10 +201,11 @@ public class RoomController {
             String accessMode,
             String permissionMode,
             boolean passwordProtected,
-            boolean voiceEnabled
+            boolean voiceEnabled,
+            String joinToken
     ) {
         public static QueryRoomResponse missing(String roomId) {
-            return new QueryRoomResponse(roomId, false, false, "", "", 0, 0, "", "", false, false);
+            return new QueryRoomResponse(roomId, false, false, "", "", 0, 0, "", "", false, false, "");
         }
     }
 

@@ -5,9 +5,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.cocanvas.persistence.entity.RoomEntity;
 import com.cocanvas.persistence.repository.RoomRepository;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Service;
 public class RoomService {
 
     private final RoomRepository roomRepository;
+    private final Map<String, CachedRoom> roomCache = new ConcurrentHashMap<>();
 
     public RoomService(RoomRepository roomRepository) {
         this.roomRepository = roomRepository;
@@ -38,11 +41,21 @@ public class RoomService {
         room.setPasswordHash(hashPassword(command.password()));
         room.setCreatedAt(now);
         room.setUpdatedAt(now);
-        return roomRepository.save(room);
+        RoomEntity saved = roomRepository.save(room);
+        evictRoom(saved.getRoomId());
+        return saved;
     }
 
     public Optional<RoomEntity> findRoom(String roomId) {
-        return roomRepository.findById(roomId).filter(room -> !room.isArchived());
+        CachedRoom cached = roomCache.get(roomId);
+        long now = System.currentTimeMillis();
+        if (cached != null && cached.expiresAt() > now) {
+            return cached.room().isArchived() ? Optional.empty() : Optional.of(cached.room());
+        }
+
+        Optional<RoomEntity> room = roomRepository.findById(roomId).filter(item -> !item.isArchived());
+        room.ifPresent(entity -> roomCache.put(roomId, new CachedRoom(entity, now + 10_000)));
+        return room;
     }
 
     public RoomEntity updateRoom(String roomId, UpdateRoomCommand command) {
@@ -59,7 +72,9 @@ public class RoomService {
             room.setPasswordHash(hashPassword(command.password()));
         }
         room.setUpdatedAt(System.currentTimeMillis());
-        return roomRepository.save(room);
+        RoomEntity saved = roomRepository.save(room);
+        evictRoom(roomId);
+        return saved;
     }
 
     public void archiveRoom(String roomId) {
@@ -67,6 +82,7 @@ public class RoomService {
         room.setArchived(true);
         room.setUpdatedAt(System.currentTimeMillis());
         roomRepository.save(room);
+        evictRoom(roomId);
     }
 
     public boolean canEnter(RoomEntity room, String password) {
@@ -75,6 +91,23 @@ public class RoomService {
         }
 
         return room.getPasswordHash().equals(hashPassword(password));
+    }
+
+    public boolean canWrite(String permissionMode, String opType, String shapeType) {
+        String mode = cleanMode(permissionMode, "edit");
+        if ("view".equals(mode)) {
+            return false;
+        }
+
+        if ("comment".equals(mode)) {
+            return "comment".equals(shapeType);
+        }
+
+        return true;
+    }
+
+    public void evictRoom(String roomId) {
+        roomCache.remove(roomId);
     }
 
     private String uniqueRoomId(String requestedRoomId) {
@@ -151,5 +184,8 @@ public class RoomService {
         public RoomNotFoundException(String roomId) {
             super("Room not found: " + roomId);
         }
+    }
+
+    private record CachedRoom(RoomEntity room, long expiresAt) {
     }
 }

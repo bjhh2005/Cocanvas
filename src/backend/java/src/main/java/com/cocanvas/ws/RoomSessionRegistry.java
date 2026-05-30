@@ -18,8 +18,10 @@ public class RoomSessionRegistry {
     public static final String USER_ID = "userId";
     public static final String DISPLAY_NAME = "displayName";
     public static final String COLOR = "color";
+    public static final String PERMISSION_MODE = "permissionMode";
 
     private final Map<String, Set<WebSocketSession>> sessionsByRoom = new ConcurrentHashMap<>();
+    private final SessionSendQueue sendQueue = new SessionSendQueue();
 
     public void join(String roomId, WebSocketSession session) {
         sessionsByRoom.computeIfAbsent(roomId, key -> ConcurrentHashMap.newKeySet()).add(session);
@@ -32,21 +34,32 @@ public class RoomSessionRegistry {
         }
 
         sessions.remove(session);
+        sendQueue.unregister(session);
         if (sessions.isEmpty()) {
             sessionsByRoom.remove(roomId, sessions);
         }
     }
 
     public void broadcastInRoom(String roomId, String message, WebSocketSession exceptSession) throws IOException {
+        broadcastInRoom(roomId, message, exceptSession, false);
+    }
+
+    public void broadcastTransientInRoom(String roomId, String message, WebSocketSession exceptSession) throws IOException {
+        broadcastInRoom(roomId, message, exceptSession, true);
+    }
+
+    public void send(WebSocketSession session, String message) throws IOException {
+        sendQueue.send(session, message, false);
+    }
+
+    private void broadcastInRoom(String roomId, String message, WebSocketSession exceptSession, boolean transientMessage) throws IOException {
         Set<WebSocketSession> sessions = sessionsByRoom.getOrDefault(roomId, Set.of());
         for (WebSocketSession session : sessions) {
             if (session.equals(exceptSession) || !session.isOpen()) {
                 continue;
             }
 
-            synchronized (session) {
-                session.sendMessage(new TextMessage(message));
-            }
+            sendQueue.send(session, message, transientMessage);
         }
     }
 

@@ -41,6 +41,12 @@ public class RedisRoomEventSubscriber implements MessageListener {
             }
 
             applyRemoteOpToReplica(event);
+            JsonNode payload = objectMapper.readTree(event.payload());
+            if ("cursor".equals(payload.path("type").asText()) || "shape-preview".equals(payload.path("type").asText())) {
+                registry.broadcastTransientInRoom(event.roomId(), event.payload(), null);
+                return;
+            }
+
             registry.broadcastInRoom(event.roomId(), event.payload(), null);
         } catch (Exception ignored) {
             // Malformed pub/sub events are ignored so one bad frame cannot break the subscriber loop.

@@ -42,7 +42,7 @@ class WsPeer {
     this.socket = null;
   }
 
-  async connect(room) {
+  async connect(room, joinToken) {
     this.socket = new WebSocket(this.url);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`connect timeout ${this.url}`)), 10000);
@@ -75,6 +75,7 @@ class WsPeer {
       userId: this.userId,
       displayName: this.userId,
       color: '#2563eb',
+      joinToken,
     });
     await this.waitFor((message) => message.type === 'joined');
   }
@@ -150,7 +151,7 @@ const main = async () => {
 
   const peer1 = new WsPeer(`${wsBase}/ws/backend1/collab`, 'perf-user-a');
   const peer2 = new WsPeer(`${wsBase}/ws/backend2/collab`, 'perf-user-b');
-  await Promise.all([peer1.connect(roomId), peer2.connect(roomId)]);
+  await Promise.all([peer1.connect(roomId, room.joinToken), peer2.connect(roomId, room.joinToken)]);
 
   const crossNodePromise = peer2.waitFor((message) => message.type === 'op' && message.op?.shapeId === 'shape-main');
   const firstAck = await sendOpAndWaitAck(peer1, roomId, 0);

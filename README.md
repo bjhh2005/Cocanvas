@@ -17,6 +17,7 @@ Nginx :8088
 
 backend1/backend2
   |-- Spring WebSocket: 房间连接、光标、op、ack
+  |-- SessionSendQueue: 慢客户端背压和 transient 消息丢弃
   |-- RoomReplicaService: 内存副本 + HLC/CRDT 合并
   |-- HistoryService: MySQL op log + versioned snapshot
   |-- NodeRouter: Redis 节点发现 + 一致性哈希
@@ -24,7 +25,8 @@ backend1/backend2
 
 Redis
   |-- cocanvas:nodes 节点索引
-  `-- cocanvas:room-events:{0..63} 分片广播
+  |-- cocanvas:room-events:{0..63} 分片广播
+  `-- cocanvas:room-transient-events:{0..63} transient 分片广播
 
 MySQL
   |-- rooms
@@ -131,11 +133,14 @@ docker run --rm `
 ## 当前能力
 
 - 房间创建、查询、更新、归档。
-- 房间密码、访问模式、权限模式字段。
+- 房间密码、访问模式、权限模式字段、短期 join token。
 - 多人 WebSocket join、peer joined/left、远端光标。
 - 白板对象创建、拖动、编辑、删除、连接线、画笔、评论、Frame、分组、多选。
 - HLC/CRDT 属性级合并。
 - Redis Pub/Sub 跨节点广播。
+- cursor / shape-preview transient 低优先级广播。
+- WebSocket 每 session 独立发送队列和慢客户端背压。
+- 后端执行 `view` / `comment` 写入权限校验。
 - 一致性哈希按房间路由到后端节点。
 - op 持久化成功后 ack 和广播。
 - 前端 pending op outbox, 支持断线重连后补发。

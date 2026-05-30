@@ -672,6 +672,23 @@
   background: var(--social-bg);
 }
 
+.collab-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(76px, auto));
+  gap: 4px 8px;
+  max-width: 360px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.collab-diagnostics span {
+  white-space: nowrap;
+}
+
+.collab-diagnostics strong {
+  color: var(--ink);
+}
+
 .toolbar {
   display: flex;
   gap: 10px;
@@ -1398,6 +1415,14 @@
 .timeline-panel button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.history-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .canvas-stage {

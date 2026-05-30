@@ -5,6 +5,7 @@ public record JoinMessage(
         String roomId,
         String userId,
         String displayName,
-        String color
+        String color,
+        String joinToken
 ) implements InboundMessage {
 }
