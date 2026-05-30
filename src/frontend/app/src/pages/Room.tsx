@@ -30,7 +30,7 @@ import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
 import { UserIdentityEditor } from '../components/UserIdentityEditor';
 import { HybridLogicalClock } from '../crdt/hlc';
-import { getRoom, getRoomHistory, type HistoryResponse } from '../network/api';
+import { getRoom, getRoomHistory, fetchCacheStats, fetchQueueStats, type HistoryResponse, type CacheStatsResponse, type QueueStatsResponse } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
@@ -211,6 +211,8 @@ export function Room() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [cacheStats, setCacheStats] = useState<CacheStatsResponse | null>(null);
+  const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
   const clipboardRef = useRef<ShapeOperation[]>([]);
   const undoStackRef = useRef<HistoryEntry[]>([]);
   const redoStackRef = useRef<HistoryEntry[]>([]);
@@ -1737,6 +1739,22 @@ export function Room() {
     }
   }, [activeGroupId, selectedIds, shapeMap]);
 
+  // Poll performance metrics every 10 s — cache hit rate + WS queue stats
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const [cs, qs] = await Promise.all([fetchCacheStats(), fetchQueueStats()]);
+        setCacheStats(cs);
+        setQueueStats(qs);
+      } catch {
+        // metrics are best-effort; silently ignore errors
+      }
+    };
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleLoadHistory = async () => {
     setHistoryLoading(true);
     try {
@@ -1826,6 +1844,18 @@ export function Room() {
           <span>Restore <strong>{lastRestoredOps}</strong></span>
           <span>Replay <strong>{lastReplayedOps}</strong></span>
           <span>Flush <strong>{lastFlushedOps}</strong></span>
+          {cacheStats && (
+            <span title={`Hits: ${cacheStats.hitCount} / Misses: ${cacheStats.missCount} / Loads: ${cacheStats.loadCount} (${cacheStats.totalLoadMs}ms)`}>
+              Cache <strong>{(cacheStats.hitRate * 100).toFixed(1)}%</strong>
+            </span>
+          )}
+          {queueStats && (
+            <span title={`Active sessions: ${queueStats.activeSessions} / Queued: ${queueStats.totalQueuedMessages} / Drops: ${queueStats.transientDrops} / Disconnects: ${queueStats.overloadDisconnects}`}>
+              Q <strong>{queueStats.totalQueuedMessages}</strong>
+              {queueStats.transientDrops > 0 && <> Drop <strong className="diag-warn">{queueStats.transientDrops}</strong></>}
+              {queueStats.overloadDisconnects > 0 && <> OL <strong className="diag-error">{queueStats.overloadDisconnects}</strong></>}
+            </span>
+          )}
         </div>
         {roomVoiceEnabled && (
           <div className="meeting-strip">

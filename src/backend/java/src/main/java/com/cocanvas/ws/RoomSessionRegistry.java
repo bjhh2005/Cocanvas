@@ -52,6 +52,10 @@ public class RoomSessionRegistry {
         sendQueue.send(session, message, false);
     }
 
+    public SessionSendQueue.QueueStats queueStats() {
+        return sendQueue.stats();
+    }
+
     private void broadcastInRoom(String roomId, String message, WebSocketSession exceptSession, boolean transientMessage) throws IOException {
         Set<WebSocketSession> sessions = sessionsByRoom.getOrDefault(roomId, Set.of());
         for (WebSocketSession session : sessions) {

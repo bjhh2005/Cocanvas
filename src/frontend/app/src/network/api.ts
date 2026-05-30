@@ -139,3 +139,32 @@ export const getRoomHistory = async (roomId: string, at?: number): Promise<Histo
 
   return response.json();
 };
+
+export type CacheStatsResponse = {
+  requestCount: number;
+  hitCount: number;
+  missCount: number;
+  hitRate: number;
+  missRate: number;
+  loadCount: number;
+  totalLoadMs: number;
+};
+
+export type QueueStatsResponse = {
+  activeSessions: number;
+  totalQueuedMessages: number;
+  transientDrops: number;
+  overloadDisconnects: number;
+};
+
+export const fetchCacheStats = async (): Promise<CacheStatsResponse> => {
+  const response = await fetch('/api/cluster/cache-stats');
+  if (!response.ok) throw new Error('Failed to fetch cache stats');
+  return response.json();
+};
+
+export const fetchQueueStats = async (): Promise<QueueStatsResponse> => {
+  const response = await fetch('/api/cluster/queue-stats');
+  if (!response.ok) throw new Error('Failed to fetch queue stats');
+  return response.json();
+};

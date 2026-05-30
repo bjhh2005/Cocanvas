@@ -5,24 +5,37 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import com.cocanvas.persistence.entity.RoomEntity;
 import com.cocanvas.persistence.repository.RoomRepository;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.springframework.stereotype.Service;
 
 @Service
 public class RoomService {
 
     private final RoomRepository roomRepository;
-    private final Map<String, CachedRoom> roomCache = new ConcurrentHashMap<>();
+
+    // Caffeine cache: max 1000 rooms, 10 s TTL, stats recording enabled
+    private final Cache<String, RoomEntity> roomCache = Caffeine.newBuilder()
+            .maximumSize(1_000)
+            .expireAfterWrite(10, TimeUnit.SECONDS)
+            .recordStats()
+            .build();
 
     public RoomService(RoomRepository roomRepository) {
         this.roomRepository = roomRepository;
+    }
+
+    /** Hit rate, miss rate, load count, etc. for observability. */
+    public CacheStats cacheStats() {
+        return roomCache.stats();
     }
 
     public List<RoomEntity> listActiveRooms() {
@@ -47,14 +60,13 @@ public class RoomService {
     }
 
     public Optional<RoomEntity> findRoom(String roomId) {
-        CachedRoom cached = roomCache.get(roomId);
-        long now = System.currentTimeMillis();
-        if (cached != null && cached.expiresAt() > now) {
-            return cached.room().isArchived() ? Optional.empty() : Optional.of(cached.room());
+        RoomEntity cached = roomCache.getIfPresent(roomId);
+        if (cached != null) {
+            return cached.isArchived() ? Optional.empty() : Optional.of(cached);
         }
 
-        Optional<RoomEntity> room = roomRepository.findById(roomId).filter(item -> !item.isArchived());
-        room.ifPresent(entity -> roomCache.put(roomId, new CachedRoom(entity, now + 10_000)));
+        Optional<RoomEntity> room = roomRepository.findById(roomId).filter(r -> !r.isArchived());
+        room.ifPresent(entity -> roomCache.put(roomId, entity));
         return room;
     }
 
@@ -107,7 +119,7 @@ public class RoomService {
     }
 
     public void evictRoom(String roomId) {
-        roomCache.remove(roomId);
+        roomCache.invalidate(roomId);
     }
 
     private String uniqueRoomId(String requestedRoomId) {
@@ -186,6 +198,4 @@ public class RoomService {
         }
     }
 
-    private record CachedRoom(RoomEntity room, long expiresAt) {
-    }
 }

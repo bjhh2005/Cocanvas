@@ -702,6 +702,14 @@
   color: var(--ink);
 }
 
+.collab-diagnostics .diag-warn {
+  color: #d97706;
+}
+
+.collab-diagnostics .diag-error {
+  color: #dc2626;
+}
+
 .toolbar {
   display: flex;
   gap: 10px;
