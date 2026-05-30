@@ -75,31 +75,20 @@ const tools: Array<{ mode: ToolMode; label: string; Icon: LucideIcon; title: str
 
 export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected }: ToolbarProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const activeToolConfig = tools.find((tool) => tool.mode === activeTool) ?? tools[0];
 
   return (
-    <aside className={collapsed ? 'left-toolbar collapsed' : 'left-toolbar'} aria-label="Canvas toolbar">
+    <aside className={`left-toolbar${collapsed ? ' collapsed' : ''}`} aria-label="Canvas toolbar">
       <button
         type="button"
         title={collapsed ? 'Expand toolbar' : 'Collapse toolbar'}
         className="toolbar-collapse-button"
-        onClick={() => setCollapsed((current) => !current)}
+        onClick={() => setCollapsed((c) => !c)}
       >
         {collapsed ? <PanelLeftOpen size={18} aria-hidden /> : <PanelLeftClose size={18} aria-hidden />}
-        <small>{collapsed ? 'More' : 'Less'}</small>
+        {!collapsed && <small>Less</small>}
       </button>
 
-      {collapsed ? (
-        <button
-          type="button"
-          title={activeToolConfig.title}
-          className="active"
-          onClick={() => setCollapsed(false)}
-        >
-          <activeToolConfig.Icon size={18} className={activeToolConfig.iconClass} aria-hidden />
-          <small>{activeToolConfig.label}</small>
-        </button>
-      ) : (
+      {!collapsed && (
         <div className="toolbar-scroll">
           {tools.map(({ Icon, ...tool }) => (
             <button
@@ -110,10 +99,7 @@ export function Toolbar({ activeTool, selectedId, onSelectTool, onDeleteSelected
               className={activeTool === tool.mode ? 'active' : undefined}
               onClick={() => onSelectTool(tool.mode)}
               onDragStart={(event) => {
-                if (!createTools.has(tool.mode)) {
-                  return;
-                }
-
+                if (!createTools.has(tool.mode)) return;
                 event.dataTransfer.setData('application/x-cocanvas-tool', tool.mode);
                 event.dataTransfer.effectAllowed = 'copy';
               }}

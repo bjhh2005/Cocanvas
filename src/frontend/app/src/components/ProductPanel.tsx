@@ -177,9 +177,8 @@ export function ProductPanel({
   if (collapsed) {
     return (
       <aside className="product-panel collapsed" aria-label="Product board">
-        <button type="button" title="Open inspector" onClick={() => setCollapsed(false)}>
+        <button type="button" className="product-panel-toggle" title="Open inspector" onClick={() => setCollapsed(false)}>
           <PanelRightOpen size={18} aria-hidden />
-          <span>Inspect</span>
         </button>
       </aside>
     );

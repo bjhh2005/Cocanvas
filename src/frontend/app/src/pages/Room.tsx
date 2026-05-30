@@ -7,9 +7,7 @@ import {
   ArrowUpToLine,
   AudioLines,
   Copy,
-  Download,
   Goal,
-  History,
   ImageDown,
   Keyboard,
   Link2,
@@ -217,6 +215,7 @@ export function Room() {
   const historyBatchRef = useRef<HistoryEntry | null>(null);
   const historyReplayRef = useRef(false);
   const lastCanvasPointRef = useRef<{ x: number; y: number } | null>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
   const topbarRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
@@ -938,6 +937,7 @@ export function Room() {
         return;
       }
       element.style.setProperty('--board-top', `${topbarHeight}px`);
+      shellRef.current?.style.setProperty('--board-top', `${topbarHeight}px`);
       setStageSize({
         width: nextWidth,
         height: nextHeight,
@@ -1270,6 +1270,10 @@ export function Room() {
       phase.id === phaseId ? { ...phase, ...patch, id: phase.id } : phase
     )));
   };
+
+  const handleMeetingBarHeight = useCallback((h: number) => {
+    shellRef.current?.style.setProperty('--meeting-bar-height', `${h}px`);
+  }, []);
 
   const handleImportFile = async (file: File) => {
     try {
@@ -1769,7 +1773,7 @@ export function Room() {
     : null;
 
   return (
-    <main className="whiteboard-shell">
+    <main className="whiteboard-shell" ref={shellRef}>
       <header className="whiteboard-topbar" ref={topbarRef}>
         <div>
           <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> Home</Link>
@@ -1884,6 +1888,12 @@ export function Room() {
           color={color}
           onPhaseChange={handlePhaseChange}
           onPhaseStep={handlePhaseStep}
+          historyAt={historyAt}
+          historyLoading={historyLoading}
+          historyPreview={historyPreview}
+          onHistoryAtChange={setHistoryAt}
+          onLoadHistory={handleLoadHistory}
+          onHeightChange={handleMeetingBarHeight}
         />
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
@@ -1894,31 +1904,6 @@ export function Room() {
           <button type="button" title="Export PNG" onClick={exportPng}><ImageDown size={16} aria-hidden /></button>
         </div>
       </section>
-
-      <section className="timeline-panel compact-history">
-        <label htmlFor="history-at">History timestamp</label>
-        <input
-          id="history-at"
-          type="number"
-          value={historyAt}
-          onChange={(event) => setHistoryAt(Number(event.target.value))}
-        />
-        <button type="button" onClick={handleLoadHistory} disabled={historyLoading}>
-          {historyLoading ? <Download size={16} aria-hidden /> : <History size={16} aria-hidden />}
-          <span>{historyLoading ? 'Loading' : 'Load'}</span>
-        </button>
-        {historyPreview && (
-          <p className="history-preview">
-            Snapshot {historyPreview.snapshotShapes} / ops {historyPreview.ops}
-          </p>
-        )}
-      </section>
-
-      <ol className="room-events" aria-label="Room events">
-        {events.map((event, index) => (
-          <li key={`${event}-${index}`}>{event}</li>
-        ))}
-      </ol>
 
       {contextMenu && (
         <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onClick={(event) => event.stopPropagation()}>

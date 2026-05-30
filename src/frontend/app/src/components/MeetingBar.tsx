@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Send, Smile } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, History, Send, Smile } from 'lucide-react';
 import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -19,6 +19,13 @@ interface FloatingEmoji {
   x: number;
 }
 
+interface HistoryPreview {
+  snapshotId: string;
+  snapshotShapes: number;
+  ops: number;
+  at: number;
+}
+
 interface MeetingBarProps {
   phases: MeetingPhase[];
   activePhaseId: MeetingPhaseId;
@@ -28,6 +35,13 @@ interface MeetingBarProps {
   color: string;
   onPhaseChange: (id: MeetingPhaseId) => void;
   onPhaseStep: (direction: number) => void;
+  // History
+  historyAt: number;
+  historyLoading: boolean;
+  historyPreview: HistoryPreview | null;
+  onHistoryAtChange: (value: number) => void;
+  onLoadHistory: () => void;
+  onHeightChange?: (height: number) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -36,6 +50,13 @@ const EMOJI_LIST = ['😄', '👍', '🔥', '❤️', '💡', '🎉', '😮', '�
 
 let _msgId = 0;
 const uid = () => `msg-${Date.now()}-${++_msgId}`;
+
+const formatDatetimeLocal = (ts: number) => {
+  const d = new Date(ts);
+  // datetime-local input expects "YYYY-MM-DDTHH:mm"
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -48,15 +69,22 @@ export function MeetingBar({
   color,
   onPhaseChange,
   onPhaseStep,
+  historyAt,
+  historyLoading,
+  historyPreview,
+  onHistoryAtChange,
+  onLoadHistory,
+  onHeightChange,
 }: MeetingBarProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'flow' | 'chat'>('flow');
+  const [tab, setTab] = useState<'flow' | 'chat' | 'history'>('flow');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
 
   const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
 
@@ -66,6 +94,17 @@ export function MeetingBar({
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Report bar height to parent so sidebars can shrink accordingly
+  useEffect(() => {
+    if (!barRef.current || !onHeightChange) return;
+    const el = barRef.current;
+    const notify = () => onHeightChange(el.offsetHeight);
+    notify();
+    const ro = new ResizeObserver(notify);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeightChange]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
@@ -86,7 +125,7 @@ export function MeetingBar({
   };
 
   const launchEmoji = useCallback((emoji: string) => {
-    const x = 10 + Math.random() * 80; // % from left
+    const x = 10 + Math.random() * 80;
     const id = uid();
     setFloatingEmojis((prev) => [...prev, { id, emoji, x }]);
     setTimeout(() => {
@@ -100,22 +139,23 @@ export function MeetingBar({
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
+  const handleDatetimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const ts = new Date(e.target.value).getTime();
+    if (!isNaN(ts)) onHistoryAtChange(ts);
+  };
+
   return (
     <>
-      {/* Floating emoji layer – rendered outside the panel so emojis float over canvas */}
+      {/* Floating emoji layer */}
       <div className="meeting-emoji-layer" aria-hidden>
         {floatingEmojis.map((fe) => (
-          <span
-            key={fe.id}
-            className="meeting-emoji-float"
-            style={{ left: `${fe.x}%` }}
-          >
+          <span key={fe.id} className="meeting-emoji-float" style={{ left: `${fe.x}%` }}>
             {fe.emoji}
           </span>
         ))}
       </div>
 
-      <div className={`meeting-bar${open ? ' meeting-bar--open' : ''}`}>
+      <div ref={barRef} className={`meeting-bar${open ? ' meeting-bar--open' : ''}`}>
         {/* ── Handle / collapsed strip ── */}
         <button
           type="button"
@@ -157,6 +197,15 @@ export function MeetingBar({
               onClick={() => setTab('chat')}
             >
               对话框
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'history'}
+              className={tab === 'history' ? 'active' : ''}
+              onClick={() => setTab('history')}
+            >
+              历史回放
             </button>
           </div>
 
@@ -229,9 +278,7 @@ export function MeetingBar({
                 ))}
               </div>
 
-              {/* Input row */}
               <div className="meeting-bar__input-row">
-                {/* Emoji picker */}
                 <div className="meeting-bar__emoji-wrap">
                   <button
                     type="button"
@@ -245,12 +292,7 @@ export function MeetingBar({
                   {emojiPickerOpen && (
                     <div className="meeting-bar__emoji-picker">
                       {EMOJI_LIST.map((e) => (
-                        <button
-                          key={e}
-                          type="button"
-                          onClick={() => launchEmoji(e)}
-                          title={e}
-                        >
+                        <button key={e} type="button" onClick={() => launchEmoji(e)} title={e}>
                           {e}
                         </button>
                       ))}
@@ -278,6 +320,54 @@ export function MeetingBar({
                   <Send size={16} />
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ── History tab ── */}
+          {tab === 'history' && (
+            <div className="meeting-bar__history" role="tabpanel">
+              <div className="meeting-bar__history-controls">
+                <History size={16} className="meeting-bar__history-icon" aria-hidden />
+                <label htmlFor="mb-history-at" className="meeting-bar__history-label">
+                  选择时间点
+                </label>
+                <input
+                  id="mb-history-at"
+                  type="datetime-local"
+                  className="meeting-bar__history-input"
+                  value={formatDatetimeLocal(historyAt)}
+                  onChange={handleDatetimeChange}
+                />
+                <button
+                  type="button"
+                  className="meeting-bar__history-load-btn"
+                  onClick={onLoadHistory}
+                  disabled={historyLoading}
+                >
+                  {historyLoading
+                    ? <><Download size={15} aria-hidden /> 加载中…</>
+                    : <><History size={15} aria-hidden /> 查看历史</>
+                  }
+                </button>
+              </div>
+
+              {historyPreview && (
+                <div className="meeting-bar__history-result">
+                  <span className="meeting-bar__history-badge">
+                    快照 {historyPreview.snapshotShapes} 个图形
+                  </span>
+                  <span className="meeting-bar__history-badge">
+                    增量 {historyPreview.ops} 条操作
+                  </span>
+                  <span className="meeting-bar__history-time">
+                    {new Date(historyPreview.at).toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              <p className="meeting-bar__history-tip">
+                选择历史时间点可预览该时刻的画布状态，不会影响当前协作内容。
+              </p>
             </div>
           )}
         </div>
