@@ -4,7 +4,7 @@ import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   userId: string;
   displayName: string;
@@ -42,6 +42,11 @@ interface MeetingBarProps {
   onHistoryAtChange: (value: number) => void;
   onLoadHistory: () => void;
   onHeightChange?: (height: number) => void;
+  // Synced state
+  chatMessages: ChatMessage[];
+  onSendMessage: (text: string) => void;
+  onSendEmoji: (emoji: string) => void;
+  remoteEmoji: { id: string; emoji: string } | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -75,10 +80,13 @@ export function MeetingBar({
   onHistoryAtChange,
   onLoadHistory,
   onHeightChange,
+  chatMessages,
+  onSendMessage,
+  onSendEmoji,
+  remoteEmoji,
 }: MeetingBarProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'flow' | 'chat' | 'history'>('flow');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
@@ -93,7 +101,17 @@ export function MeetingBar({
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [chatMessages]);
+
+  // Trigger float animation for remotely received emoji
+  useEffect(() => {
+    if (!remoteEmoji) return;
+    const x = 10 + Math.random() * 80;
+    const { id, emoji } = remoteEmoji;
+    setFloatingEmojis((prev) => [...prev, { id, emoji, x }]);
+    const t = setTimeout(() => setFloatingEmojis((prev) => prev.filter((e) => e.id !== id)), 2400);
+    return () => clearTimeout(t);
+  }, [remoteEmoji]);
 
   // Report bar height to parent so sidebars can shrink accordingly
   useEffect(() => {
@@ -109,13 +127,10 @@ export function MeetingBar({
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: uid(), userId, displayName, color, text, timestamp: Date.now() },
-    ]);
+    onSendMessage(text);
     setInput('');
     inputRef.current?.focus();
-  }, [input, userId, displayName, color]);
+  }, [input, onSendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -125,14 +140,15 @@ export function MeetingBar({
   };
 
   const launchEmoji = useCallback((emoji: string) => {
+    // Local float
     const x = 10 + Math.random() * 80;
     const id = uid();
     setFloatingEmojis((prev) => [...prev, { id, emoji, x }]);
-    setTimeout(() => {
-      setFloatingEmojis((prev) => prev.filter((e) => e.id !== id));
-    }, 2400);
+    setTimeout(() => setFloatingEmojis((prev) => prev.filter((e) => e.id !== id)), 2400);
     setEmojiPickerOpen(false);
-  }, []);
+    // Broadcast to others
+    onSendEmoji(emoji);
+  }, [onSendEmoji]);
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -254,10 +270,10 @@ export function MeetingBar({
           {tab === 'chat' && (
             <div className="meeting-bar__chat" role="tabpanel">
               <div className="meeting-bar__message-list" ref={listRef}>
-                {messages.length === 0 && (
+                {chatMessages.length === 0 && (
                   <p className="meeting-bar__chat-empty">还没有消息，说点什么吧 👋</p>
                 )}
-                {messages.map((msg) => (
+                {chatMessages.map((msg) => (
                   <div
                     key={msg.id}
                     className={`meeting-bar__message${msg.userId === userId ? ' mine' : ''}`}

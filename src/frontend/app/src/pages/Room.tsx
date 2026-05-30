@@ -178,6 +178,8 @@ export function Room() {
   const [historyAt, setHistoryAt] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyPreview, setHistoryPreview] = useState<{ snapshotId: string; snapshotShapes: number; ops: number; at: number } | null>(null);
+  const [chatMessages, setChatMessages] = useState<import('../components/MeetingBar').ChatMessage[]>([]);
+  const [remoteEmoji, setRemoteEmoji] = useState<{ id: string; emoji: string } | null>(null);
   const [roomName, setRoomName] = useState('');
   const [roomWsUrl, setRoomWsUrl] = useState('');
   const [joinToken, setJoinToken] = useState('');
@@ -883,6 +885,24 @@ export function Room() {
           return;
         }
 
+        if (message.type === 'room-chat') {
+          setChatMessages((prev) => [
+            ...prev,
+            { id: `${message.userId}-${message.timestamp}`, userId: message.userId, displayName: message.displayName, color: message.color, text: message.text, timestamp: message.timestamp },
+          ]);
+          return;
+        }
+
+        if (message.type === 'room-emoji') {
+          setRemoteEmoji({ id: `${message.userId}-${Date.now()}`, emoji: message.emoji });
+          return;
+        }
+
+        if (message.type === 'room-phase') {
+          setActivePhaseId(message.phaseId as MeetingPhaseId);
+          return;
+        }
+
         if (message.type === 'error') {
           setEvents((current) => [`error: ${message.message}`, ...current].slice(0, 5));
           if (message.code === 'op_persist_failed') {
@@ -1223,9 +1243,8 @@ export function Room() {
 
   const handlePhaseChange = (phaseId: MeetingPhaseId) => {
     setActivePhaseId(phaseId);
-    const phase = phases.find((item) => item.id === phaseId);
-    if (phase) {
-      setEvents((current) => [`meeting phase: ${phase.label}`, ...current].slice(0, 5));
+    if (roomId) {
+      wsClient?.sendJson({ type: 'room-phase', msgId: `${userId}-${Date.now()}`, roomId, userId, phaseId });
     }
   };
 
@@ -1274,6 +1293,19 @@ export function Room() {
   const handleMeetingBarHeight = useCallback((h: number) => {
     shellRef.current?.style.setProperty('--meeting-bar-height', `${h}px`);
   }, []);
+
+  const handleSendChatMessage = useCallback((text: string) => {
+    if (!text.trim() || !roomId) return;
+    const timestamp = Date.now();
+    const msg = { id: `${userId}-${timestamp}`, userId, displayName, color, text, timestamp };
+    setChatMessages((prev) => [...prev, msg]);
+    wsClient?.sendJson({ type: 'room-chat', msgId: msg.id, roomId, userId, displayName, color, text, timestamp });
+  }, [roomId, userId, displayName, color, wsClient]);
+
+  const handleSendEmoji = useCallback((emoji: string) => {
+    if (!roomId) return;
+    wsClient?.sendJson({ type: 'room-emoji', msgId: `${userId}-${Date.now()}`, roomId, userId, emoji });
+  }, [roomId, userId, wsClient]);
 
   const handleImportFile = async (file: File) => {
     try {
@@ -1894,6 +1926,10 @@ export function Room() {
           onHistoryAtChange={setHistoryAt}
           onLoadHistory={handleLoadHistory}
           onHeightChange={handleMeetingBarHeight}
+          chatMessages={chatMessages}
+          onSendMessage={handleSendChatMessage}
+          onSendEmoji={handleSendEmoji}
+          remoteEmoji={remoteEmoji}
         />
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>

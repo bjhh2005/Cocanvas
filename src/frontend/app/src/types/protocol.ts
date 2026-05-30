@@ -101,7 +101,34 @@ export type ShapePreviewMessage = {
   op: ShapeOperation;
 };
 
-export type ClientMessage = JoinMessage | CursorMessage | OpMessage | ShapePreviewMessage;
+export type RoomChatClientMessage = {
+  type: 'room-chat';
+  msgId: string;
+  roomId: string;
+  userId: string;
+  displayName: string;
+  color: string;
+  text: string;
+  timestamp: number;
+};
+
+export type RoomEmojiClientMessage = {
+  type: 'room-emoji';
+  msgId: string;
+  roomId: string;
+  userId: string;
+  emoji: string;
+};
+
+export type RoomPhaseClientMessage = {
+  type: 'room-phase';
+  msgId: string;
+  roomId: string;
+  userId: string;
+  phaseId: string;
+};
+
+export type ClientMessage = JoinMessage | CursorMessage | OpMessage | ShapePreviewMessage | RoomChatClientMessage | RoomEmojiClientMessage | RoomPhaseClientMessage;
 
 export type JoinedMessage = {
   type: 'joined';
@@ -156,6 +183,27 @@ export type ErrorMessage = {
   message: string;
 };
 
+export type RoomChatBroadcastMessage = {
+  type: 'room-chat';
+  userId: string;
+  displayName: string;
+  color: string;
+  text: string;
+  timestamp: number;
+};
+
+export type RoomEmojiBroadcastMessage = {
+  type: 'room-emoji';
+  userId: string;
+  emoji: string;
+};
+
+export type RoomPhaseBroadcastMessage = {
+  type: 'room-phase';
+  userId: string;
+  phaseId: string;
+};
+
 export type ServerMessage =
   | JoinedMessage
   | PeerJoinedMessage
@@ -164,4 +212,7 @@ export type ServerMessage =
   | OpBroadcastMessage
   | OpAckMessage
   | ShapePreviewBroadcastMessage
+  | RoomChatBroadcastMessage
+  | RoomEmojiBroadcastMessage
+  | RoomPhaseBroadcastMessage
   | ErrorMessage;

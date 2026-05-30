@@ -8,6 +8,9 @@ import com.cocanvas.protocol.inbound.CursorMessage;
 import com.cocanvas.protocol.inbound.InboundMessage;
 import com.cocanvas.protocol.inbound.JoinMessage;
 import com.cocanvas.protocol.inbound.OpMessage;
+import com.cocanvas.protocol.inbound.RoomChatMessage;
+import com.cocanvas.protocol.inbound.RoomEmojiMessage;
+import com.cocanvas.protocol.inbound.RoomPhaseMessage;
 import com.cocanvas.protocol.inbound.ShapePreviewMessage;
 import com.cocanvas.protocol.outbound.CursorBroadcastMessage;
 import com.cocanvas.protocol.outbound.ErrorMessage;
@@ -16,6 +19,9 @@ import com.cocanvas.protocol.outbound.OpAckMessage;
 import com.cocanvas.protocol.outbound.OpBroadcastMessage;
 import com.cocanvas.protocol.outbound.PeerJoinedMessage;
 import com.cocanvas.protocol.outbound.PeerLeftMessage;
+import com.cocanvas.protocol.outbound.RoomChatBroadcastMessage;
+import com.cocanvas.protocol.outbound.RoomEmojiBroadcastMessage;
+import com.cocanvas.protocol.outbound.RoomPhaseBroadcastMessage;
 import com.cocanvas.protocol.outbound.ShapePreviewBroadcastMessage;
 import com.cocanvas.pubsub.RealtimeBroadcaster;
 import com.cocanvas.service.HistoryService;
@@ -88,6 +94,21 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
 
         if (inbound instanceof ShapePreviewMessage previewMessage) {
             handleShapePreview(session, previewMessage);
+            return;
+        }
+
+        if (inbound instanceof RoomChatMessage chatMessage) {
+            handleRoomChat(session, chatMessage);
+            return;
+        }
+
+        if (inbound instanceof RoomEmojiMessage emojiMessage) {
+            handleRoomEmoji(session, emojiMessage);
+            return;
+        }
+
+        if (inbound instanceof RoomPhaseMessage phaseMessage) {
+            handleRoomPhase(session, phaseMessage);
             return;
         }
 
@@ -198,6 +219,51 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         broadcaster.broadcastTransient(
                 roomId,
                 new ShapePreviewBroadcastMessage(userId, message.op()),
+                session
+        );
+    }
+
+    private void handleRoomChat(WebSocketSession session, RoomChatMessage message) throws IOException {
+        Map<String, Object> attributes = session.getAttributes();
+        String roomId = attribute(attributes, RoomSessionRegistry.ROOM_ID);
+        String userId = attribute(attributes, RoomSessionRegistry.USER_ID);
+        if (roomId == null || userId == null) {
+            send(session, new ErrorMessage("not_joined", "Send join before room-chat"));
+            return;
+        }
+        broadcaster.broadcastTransient(
+                roomId,
+                new RoomChatBroadcastMessage(userId, message.displayName(), message.color(), message.text(), message.timestamp()),
+                session
+        );
+    }
+
+    private void handleRoomEmoji(WebSocketSession session, RoomEmojiMessage message) throws IOException {
+        Map<String, Object> attributes = session.getAttributes();
+        String roomId = attribute(attributes, RoomSessionRegistry.ROOM_ID);
+        String userId = attribute(attributes, RoomSessionRegistry.USER_ID);
+        if (roomId == null || userId == null) {
+            send(session, new ErrorMessage("not_joined", "Send join before room-emoji"));
+            return;
+        }
+        broadcaster.broadcastTransient(
+                roomId,
+                new RoomEmojiBroadcastMessage(userId, message.emoji()),
+                session
+        );
+    }
+
+    private void handleRoomPhase(WebSocketSession session, RoomPhaseMessage message) throws IOException {
+        Map<String, Object> attributes = session.getAttributes();
+        String roomId = attribute(attributes, RoomSessionRegistry.ROOM_ID);
+        String userId = attribute(attributes, RoomSessionRegistry.USER_ID);
+        if (roomId == null || userId == null) {
+            send(session, new ErrorMessage("not_joined", "Send join before room-phase"));
+            return;
+        }
+        broadcaster.broadcast(
+                roomId,
+                new RoomPhaseBroadcastMessage(userId, message.phaseId()),
                 session
         );
     }
