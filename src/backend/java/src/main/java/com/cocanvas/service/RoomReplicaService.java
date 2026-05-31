@@ -83,13 +83,14 @@ public class RoomReplicaService {
 
     public Map<String, Map<String, Object>> snapshot(String roomId) {
         Map<String, ReplicatedShape> shapes = rooms.getOrDefault(roomId, Map.of());
-        Map<String, Map<String, Object>> snapshot = new ConcurrentHashMap<>();
+        // 返回值是一次性序列化用的临时结构，用 HashMap 避免 ConcurrentHashMap 的并发开销
+        Map<String, Map<String, Object>> snapshot = new HashMap<>();
         shapes.forEach((shapeId, shape) -> {
             if (shape.tombstoneHlc() != null) {
                 return;
             }
 
-            Map<String, Object> attrs = new ConcurrentHashMap<>();
+            Map<String, Object> attrs = new HashMap<>();
             shape.attrs().forEach((key, value) -> attrs.put(key, value.value()));
             attrs.put("shapeType", shape.shapeType());
             snapshot.put(shapeId, attrs);
@@ -99,13 +100,13 @@ public class RoomReplicaService {
 
     public Map<String, Map<String, Object>> versionedSnapshot(String roomId) {
         Map<String, ReplicatedShape> shapes = rooms.getOrDefault(roomId, Map.of());
-        Map<String, Map<String, Object>> snapshot = new ConcurrentHashMap<>();
+        Map<String, Map<String, Object>> snapshot = new HashMap<>();
         shapes.forEach((shapeId, shape) -> {
             if (shape.tombstoneHlc() != null) {
                 return;
             }
 
-            Map<String, Object> attrs = new ConcurrentHashMap<>();
+            Map<String, Object> attrs = new HashMap<>();
             shape.attrs().forEach((key, value) -> {
                 Map<String, Object> versionedValue = new HashMap<>();
                 versionedValue.put("value", value.value());

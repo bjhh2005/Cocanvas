@@ -21,7 +21,9 @@ public class SnapshotEntity {
     private String hlc;
     private long createdAt;
 
-    @Column(columnDefinition = "TEXT")
+    // LONGTEXT (最大 4GB) 而非 TEXT (64KB)：大白板的完整快照 JSON 极易超过 64KB，
+    // 用 TEXT 会被 MySQL 静默截断导致快照损坏、历史恢复失败。
+    @Column(columnDefinition = "LONGTEXT")
     private String payload;
 
     public String getSnapshotId() {

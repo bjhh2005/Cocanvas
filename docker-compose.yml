@@ -56,7 +56,7 @@ services:
       REALTIME_BROADCASTER: redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&rewriteBatchedStatements=true
       MYSQL_USER: root
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
       JOIN_TOKEN_SECRET: ${JOIN_TOKEN_SECRET:-cocanvas-dev-secret}
@@ -84,7 +84,7 @@ services:
       REALTIME_BROADCASTER: redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      MYSQL_URL: jdbc:mysql://mysql:3306/cocanvas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&rewriteBatchedStatements=true
       MYSQL_USER: root
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cocanvas123}
       JOIN_TOKEN_SECRET: ${JOIN_TOKEN_SECRET:-cocanvas-dev-secret}

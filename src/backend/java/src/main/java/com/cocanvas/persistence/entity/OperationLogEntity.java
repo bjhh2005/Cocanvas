@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import org.springframework.data.domain.Persistable;
 
 @Entity
 @Table(
@@ -14,7 +16,7 @@ import jakarta.persistence.Table;
                 @Index(name = "idx_operation_logs_room_created", columnList = "roomId,createdAt")
         }
 )
-public class OperationLogEntity {
+public class OperationLogEntity implements Persistable<String> {
 
     @Id
     private String opId;
@@ -26,8 +28,24 @@ public class OperationLogEntity {
     private String hlc;
     private long createdAt;
 
-    @Column(columnDefinition = "TEXT")
+    // LONGTEXT 而非 TEXT：单条 op（如包含大量点的 pen 笔迹）也可能超过 64KB，统一放宽避免截断。
+    @Column(columnDefinition = "LONGTEXT")
     private String payload;
+
+    // Persistable: opId 是外部分配的（客户端 opId 或 UUID），始终视为新插入，
+    // 让 Spring Data 走 persist() 而非 merge()，从而避免每行先 SELECT、支持真正的 JDBC 批量插入。
+    // 重复 opId 由数据库主键约束拦截，批量失败时回退逐条保存。
+    @Override
+    @Transient
+    public String getId() {
+        return opId;
+    }
+
+    @Override
+    @Transient
+    public boolean isNew() {
+        return true;
+    }
 
     public String getOpId() {
         return opId;

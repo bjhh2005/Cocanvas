@@ -199,11 +199,8 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         }
 
         String mergedHlc = replicaService.mergeHlc(message.hlc());
-        if (historyService != null && !historyService.tryRecordOperation(roomId, userId, mergedHlc, message.op())) {
-            send(session, new ErrorMessage("op_persist_failed", "Operation was not persisted; retry after reconnect"));
-            return;
-        }
 
+        // 关键路径（用户感知延迟）：内存副本 -> ack -> 广播。这三步完成后 op 即对所有协作者生效。
         replicaService.applyCommitted(roomId, mergedHlc, userId, message.op());
         send(session, new OpAckMessage(message.op().opId(), mergedHlc));
         broadcaster.broadcast(
@@ -211,6 +208,11 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
                 new OpBroadcastMessage(userId, mergedHlc, message.op()),
                 session
         );
+
+        // 写后置：MySQL 持久化异步进行，不阻塞 ack。失败由 60s 周期快照兜底。
+        if (historyService != null) {
+            historyService.recordOperationAsync(roomId, userId, mergedHlc, message.op());
+        }
     }
 
     private void handleShapePreview(WebSocketSession session, ShapePreviewMessage message) throws IOException {
