@@ -109,6 +109,12 @@ type PanDraft = {
   startPointerX: number;
   startPointerY: number;
   startViewport: ViewportState;
+  latestViewport: ViewportState;
+};
+
+type ZoomDraft = {
+  baseViewport: ViewportState;
+  latestViewport: ViewportState;
 };
 
 type DragLayerState = {
@@ -119,6 +125,9 @@ const minScale = 0.35;
 const maxScale = 2.4;
 const gridSize = 42;
 const viewportOverscan = 520;
+const spatialCellSize = 960;
+const maxIndexedShapeCells = 80;
+const zoomCommitDelayMs = 80;
 
 const shapeBoundsFor = (shape: CanvasShape): ShapeBounds => {
   if (shape.type === 'pen' && shape.attrs.points && shape.attrs.points.length >= 2) {
@@ -191,10 +200,15 @@ export function CanvasBoard({
   const dragStateRef = useRef<DragState | null>(null);
   const dragLayerStateRef = useRef<DragLayerState | null>(null);
   const panDraftRef = useRef<PanDraft | null>(null);
+  const zoomDraftRef = useRef<ZoomDraft | null>(null);
+  const zoomCommitTimeoutRef = useRef<number | null>(null);
+  const imperativeViewportRef = useRef<ViewportState>(viewport);
   // Right-click tracking: contextmenu fires on mousedown on some platforms, so we
   // never open the menu from contextmenu — we open it on mouseup when not moved.
   const rightClickRef = useRef<{ clientX: number; clientY: number; moved: boolean } | null>(null);
+  const gridLayerRef = useRef<Konva.Layer | null>(null);
   const connectorLayerRef = useRef<Konva.Layer | null>(null);
+  const boardLayerRef = useRef<Konva.Layer | null>(null);
   const dragLayerRef = useRef<Konva.Layer | null>(null);
   const shapeNodeRefs = useRef<Map<string, Konva.Node>>(new Map());
   const dragShapeNodeRefs = useRef<Map<string, Konva.Node>>(new Map());
@@ -204,6 +218,99 @@ export function CanvasBoard({
     () => new Set(dragLayerState?.shapes.map((shape) => shape.id) ?? []),
     [dragLayerState]
   );
+
+  const applyViewportToLayers = useCallback((nextViewport: ViewportState) => {
+    imperativeViewportRef.current = nextViewport;
+    [gridLayerRef.current, connectorLayerRef.current, boardLayerRef.current, dragLayerRef.current].forEach((layer) => {
+      if (!layer) {
+        return;
+      }
+
+      layer.position({ x: nextViewport.x, y: nextViewport.y });
+      layer.scale({ x: nextViewport.scale, y: nextViewport.scale });
+      layer.batchDraw();
+    });
+  }, []);
+
+  const applyPanTranslationToCanvases = useCallback((deltaX: number, deltaY: number) => {
+    [gridLayerRef.current, connectorLayerRef.current, boardLayerRef.current, dragLayerRef.current].forEach((layer) => {
+      if (!layer) {
+        return;
+      }
+
+      const canvas = layer.getNativeCanvasElement();
+      canvas.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+      canvas.style.transformOrigin = '0 0';
+      canvas.style.willChange = 'transform';
+    });
+  }, []);
+
+  const applyViewportPreviewToCanvases = useCallback((baseViewport: ViewportState, nextViewport: ViewportState) => {
+    const scaleRatio = nextViewport.scale / baseViewport.scale;
+    const deltaX = nextViewport.x - baseViewport.x * scaleRatio;
+    const deltaY = nextViewport.y - baseViewport.y * scaleRatio;
+
+    [gridLayerRef.current, connectorLayerRef.current, boardLayerRef.current, dragLayerRef.current].forEach((layer) => {
+      if (!layer) {
+        return;
+      }
+
+      const canvas = layer.getNativeCanvasElement();
+      canvas.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scaleRatio})`;
+      canvas.style.transformOrigin = '0 0';
+      canvas.style.willChange = 'transform';
+    });
+  }, []);
+
+  const clearCanvasPreviewFromCanvases = useCallback(() => {
+    [gridLayerRef.current, connectorLayerRef.current, boardLayerRef.current, dragLayerRef.current].forEach((layer) => {
+      if (!layer) {
+        return;
+      }
+
+      const canvas = layer.getNativeCanvasElement();
+      canvas.style.transform = '';
+      canvas.style.transformOrigin = '';
+      canvas.style.willChange = '';
+    });
+  }, []);
+
+  const setBoardLayersListening = useCallback((listening: boolean) => {
+    connectorLayerRef.current?.listening(listening);
+    boardLayerRef.current?.listening(listening);
+  }, []);
+
+  const commitZoomViewport = useCallback(() => {
+    const zoomDraft = zoomDraftRef.current;
+    if (!zoomDraft) {
+      return;
+    }
+
+    if (zoomCommitTimeoutRef.current !== null) {
+      window.clearTimeout(zoomCommitTimeoutRef.current);
+      zoomCommitTimeoutRef.current = null;
+    }
+
+    zoomDraftRef.current = null;
+    applyViewportToLayers(zoomDraft.latestViewport);
+    clearCanvasPreviewFromCanvases();
+    setBoardLayersListening(true);
+    onViewportChange(zoomDraft.latestViewport);
+  }, [applyViewportToLayers, clearCanvasPreviewFromCanvases, onViewportChange, setBoardLayersListening]);
+
+  useEffect(() => {
+    if (panDraftRef.current || zoomDraftRef.current) {
+      return;
+    }
+
+    applyViewportToLayers(viewport);
+  }, [applyViewportToLayers, viewport]);
+
+  useEffect(() => () => {
+    if (zoomCommitTimeoutRef.current !== null) {
+      window.clearTimeout(zoomCommitTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTool !== 'hand') {
@@ -216,15 +323,22 @@ export function CanvasBoard({
       dragLayerStateRef.current = null;
       setDragLayerState(null);
       panDraftRef.current = null;
+      clearCanvasPreviewFromCanvases();
+      setBoardLayersListening(true);
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeTool]);
+  }, [activeTool, clearCanvasPreviewFromCanvases, setBoardLayersListening]);
 
-  const screenToCanvas = (point: { x: number; y: number }) => ({
-    x: (point.x - viewport.x) / viewport.scale,
-    y: (point.y - viewport.y) / viewport.scale,
-  });
+  const screenToCanvas = (point: { x: number; y: number }) => {
+    const activeViewport = zoomDraftRef.current?.latestViewport ??
+      panDraftRef.current?.latestViewport ??
+      imperativeViewportRef.current;
+    return {
+      x: (point.x - activeViewport.x) / activeViewport.scale,
+      y: (point.y - activeViewport.y) / activeViewport.scale,
+    };
+  };
 
   const pointFromStage = () => {
     const pointer = stageRef.current?.getPointerPosition();
@@ -268,6 +382,52 @@ export function CanvasBoard({
     }
   }, []);
 
+  const boardShapesById = useMemo(
+    () => new Map(boardShapes.map((shape) => [shape.id, shape])),
+    [boardShapes]
+  );
+
+  const boardShapeOrder = useMemo(
+    () => new Map(boardShapes.map((shape, index) => [shape.id, index])),
+    [boardShapes]
+  );
+
+  const boardShapeSpatialIndex = useMemo(() => {
+    const cells = new Map<string, CanvasShape[]>();
+    const overflowShapes: CanvasShape[] = [];
+    const boundsById = new Map<string, ShapeBounds>();
+
+    boardShapes.forEach((shape) => {
+      const bounds = shapeBoundsFor(shape);
+      boundsById.set(shape.id, bounds);
+
+      const startCellX = Math.floor(bounds.left / spatialCellSize);
+      const endCellX = Math.floor((bounds.left + bounds.width) / spatialCellSize);
+      const startCellY = Math.floor(bounds.top / spatialCellSize);
+      const endCellY = Math.floor((bounds.top + bounds.height) / spatialCellSize);
+      const cellCount = (endCellX - startCellX + 1) * (endCellY - startCellY + 1);
+
+      if (cellCount > maxIndexedShapeCells) {
+        overflowShapes.push(shape);
+        return;
+      }
+
+      for (let cellX = startCellX; cellX <= endCellX; cellX += 1) {
+        for (let cellY = startCellY; cellY <= endCellY; cellY += 1) {
+          const key = `${cellX}:${cellY}`;
+          const bucket = cells.get(key);
+          if (bucket) {
+            bucket.push(shape);
+          } else {
+            cells.set(key, [shape]);
+          }
+        }
+      }
+    });
+
+    return { cells, overflowShapes, boundsById };
+  }, [boardShapes]);
+
   const viewportBounds = useMemo(() => ({
     left: (-viewport.x / viewport.scale) - viewportOverscan,
     top: (-viewport.y / viewport.scale) - viewportOverscan,
@@ -276,12 +436,43 @@ export function CanvasBoard({
   }), [height, viewport.scale, viewport.x, viewport.y, width]);
 
   const visibleBoardShapes = useMemo(() => {
-    const selectedSet = new Set(selectedIds);
-    return boardShapes.filter((shape) => (
-      selectedSet.has(shape.id) ||
-      boundsIntersect(viewportBounds, shapeBoundsFor(shape))
-    ));
-  }, [boardShapes, selectedIds, viewportBounds]);
+    const visibleIds = new Set<string>();
+    const checkedIds = new Set<string>();
+    const startCellX = Math.floor(viewportBounds.left / spatialCellSize);
+    const endCellX = Math.floor((viewportBounds.left + viewportBounds.width) / spatialCellSize);
+    const startCellY = Math.floor(viewportBounds.top / spatialCellSize);
+    const endCellY = Math.floor((viewportBounds.top + viewportBounds.height) / spatialCellSize);
+
+    const addIfVisible = (shape: CanvasShape) => {
+      if (checkedIds.has(shape.id)) {
+        return;
+      }
+
+      checkedIds.add(shape.id);
+      const bounds = boardShapeSpatialIndex.boundsById.get(shape.id) ?? shapeBoundsFor(shape);
+      if (boundsIntersect(viewportBounds, bounds)) {
+        visibleIds.add(shape.id);
+      }
+    };
+
+    for (let cellX = startCellX; cellX <= endCellX; cellX += 1) {
+      for (let cellY = startCellY; cellY <= endCellY; cellY += 1) {
+        boardShapeSpatialIndex.cells.get(`${cellX}:${cellY}`)?.forEach(addIfVisible);
+      }
+    }
+
+    boardShapeSpatialIndex.overflowShapes.forEach(addIfVisible);
+    selectedIds.forEach((shapeId) => {
+      if (boardShapesById.has(shapeId)) {
+        visibleIds.add(shapeId);
+      }
+    });
+
+    return [...visibleIds]
+      .map((shapeId) => boardShapesById.get(shapeId))
+      .filter((shape): shape is CanvasShape => Boolean(shape))
+      .sort((left, right) => (boardShapeOrder.get(left.id) ?? 0) - (boardShapeOrder.get(right.id) ?? 0));
+  }, [boardShapeOrder, boardShapeSpatialIndex, boardShapesById, selectedIds, viewportBounds]);
 
   const renderedBoardShapes = useMemo(
     () => visibleBoardShapes.map((shape) => {
@@ -311,36 +502,81 @@ export function CanvasBoard({
     [dragLayerShapeIds, dragState, previewPositions, visibleBoardShapes]
   );
 
-  const renderedShapesById = useMemo(
-    () => {
-      const renderedShapes = new Map(renderedBoardShapes.map((shape) => [shape.id, shape]));
-      boardShapes.forEach((shape) => {
-        if (!renderedShapes.has(shape.id)) {
-          renderedShapes.set(shape.id, shape);
-        }
-      });
-      connectors.forEach((shape) => renderedShapes.set(shape.id, shape));
-      return Object.fromEntries(renderedShapes);
-    },
-    [boardShapes, connectors, renderedBoardShapes]
+  const renderedBoardShapesById = useMemo(
+    () => new Map(renderedBoardShapes.map((shape) => [shape.id, shape])),
+    [renderedBoardShapes]
   );
 
-  const visibleConnectors = useMemo(() => connectors.filter((connector) => {
-    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
-    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
-    if (!fromShape || !toShape) {
-      return false;
+  const getRenderedShapeById = useCallback((shapeId?: string | null): CanvasShape | null => {
+    if (!shapeId) {
+      return null;
     }
 
-    return boundsIntersect(viewportBounds, shapeBoundsFor(fromShape)) ||
-      boundsIntersect(viewportBounds, shapeBoundsFor(toShape));
-  }), [connectors, renderedShapesById, viewportBounds]);
+    return renderedBoardShapesById.get(shapeId) ?? shapeMap[shapeId] ?? null;
+  }, [renderedBoardShapesById, shapeMap]);
+
+  const connectorOrder = useMemo(
+    () => new Map(connectors.map((connector, index) => [connector.id, index])),
+    [connectors]
+  );
+
+  const connectorsByEndpointId = useMemo(() => {
+    const endpointMap = new Map<string, CanvasShape[]>();
+    const addConnector = (shapeId: string | undefined, connector: CanvasShape) => {
+      if (!shapeId) {
+        return;
+      }
+
+      const bucket = endpointMap.get(shapeId);
+      if (bucket) {
+        bucket.push(connector);
+      } else {
+        endpointMap.set(shapeId, [connector]);
+      }
+    };
+
+    connectors.forEach((connector) => {
+      addConnector(connector.attrs.fromShapeId, connector);
+      addConnector(connector.attrs.toShapeId, connector);
+    });
+
+    return endpointMap;
+  }, [connectors]);
+
+  const visibleConnectors = useMemo(() => {
+    const visitedConnectorIds = new Set<string>();
+    const result: CanvasShape[] = [];
+
+    visibleBoardShapes.forEach((shape) => {
+      connectorsByEndpointId.get(shape.id)?.forEach((connector) => {
+        if (visitedConnectorIds.has(connector.id)) {
+          return;
+        }
+
+        visitedConnectorIds.add(connector.id);
+        const fromShape = getRenderedShapeById(connector.attrs.fromShapeId);
+        const toShape = getRenderedShapeById(connector.attrs.toShapeId);
+        if (!fromShape || !toShape) {
+          return;
+        }
+
+        if (
+          boundsIntersect(viewportBounds, shapeBoundsFor(fromShape)) ||
+          boundsIntersect(viewportBounds, shapeBoundsFor(toShape))
+        ) {
+          result.push(connector);
+        }
+      });
+    });
+
+    return result.sort((left, right) => (connectorOrder.get(left.id) ?? 0) - (connectorOrder.get(right.id) ?? 0));
+  }, [connectorOrder, connectorsByEndpointId, getRenderedShapeById, viewportBounds, visibleBoardShapes]);
 
   const gridLines = useMemo(() => {
-    const left = -viewport.x / viewport.scale;
-    const top = -viewport.y / viewport.scale;
-    const right = left + width / viewport.scale;
-    const bottom = top + height / viewport.scale;
+    const left = -viewport.x / viewport.scale - viewportOverscan;
+    const top = -viewport.y / viewport.scale - viewportOverscan;
+    const right = left + width / viewport.scale + viewportOverscan * 2;
+    const bottom = top + height / viewport.scale + viewportOverscan * 2;
     const startX = Math.floor(left / gridSize) * gridSize;
     const endX = Math.ceil(right / gridSize) * gridSize;
     const startY = Math.floor(top / gridSize) * gridSize;
@@ -380,31 +616,62 @@ export function CanvasBoard({
 
   const handleWheel = (event: Konva.KonvaEventObject<WheelEvent>) => {
     event.evt.preventDefault();
+    if (panDraftRef.current) {
+      return;
+    }
+
     const stage = stageRef.current;
     const pointer = stage?.getPointerPosition();
     if (!pointer) {
       return;
     }
 
+    const currentViewport = zoomDraftRef.current?.latestViewport ?? imperativeViewportRef.current;
     const scaleBy = 1.06;
-    const oldScale = viewport.scale;
-    const pointerBeforeZoom = screenToCanvas(pointer);
+    const oldScale = currentViewport.scale;
+    const pointerBeforeZoom = {
+      x: (pointer.x - currentViewport.x) / currentViewport.scale,
+      y: (pointer.y - currentViewport.y) / currentViewport.scale,
+    };
     const nextScale = Math.min(maxScale, Math.max(minScale, event.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy));
-
-    onViewportChange({
+    const nextViewport = {
       scale: nextScale,
       x: pointer.x - pointerBeforeZoom.x * nextScale,
       y: pointer.y - pointerBeforeZoom.y * nextScale,
-    });
+    };
+
+    if (!zoomDraftRef.current) {
+      zoomDraftRef.current = {
+        baseViewport: imperativeViewportRef.current,
+        latestViewport: imperativeViewportRef.current,
+      };
+      setBoardLayersListening(false);
+    }
+
+    zoomDraftRef.current.latestViewport = nextViewport;
+    applyViewportPreviewToCanvases(zoomDraftRef.current.baseViewport, nextViewport);
+
+    if (zoomCommitTimeoutRef.current !== null) {
+      window.clearTimeout(zoomCommitTimeoutRef.current);
+    }
+    zoomCommitTimeoutRef.current = window.setTimeout(commitZoomViewport, zoomCommitDelayMs);
   };
 
   const handleStageMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    commitZoomViewport();
+
     // Right-click on empty canvas → pan (regardless of active tool)
     if (event.evt.button === 2) {
       const pointer = stageRef.current?.getPointerPosition();
       if (pointer) {
         rightClickRef.current = { clientX: event.evt.clientX, clientY: event.evt.clientY, moved: false };
-        panDraftRef.current = { startPointerX: pointer.x, startPointerY: pointer.y, startViewport: viewport };
+        panDraftRef.current = {
+          startPointerX: pointer.x,
+          startPointerY: pointer.y,
+          startViewport: imperativeViewportRef.current,
+          latestViewport: imperativeViewportRef.current,
+        };
+        setBoardLayersListening(false);
         const container = stageRef.current?.container();
         if (container) container.style.cursor = 'grabbing';
       }
@@ -426,8 +693,10 @@ export function CanvasBoard({
         panDraftRef.current = {
           startPointerX: pointer.x,
           startPointerY: pointer.y,
-          startViewport: viewport,
+          startViewport: imperativeViewportRef.current,
+          latestViewport: imperativeViewportRef.current,
         };
+        setBoardLayersListening(false);
       }
       return;
     }
@@ -509,7 +778,7 @@ export function CanvasBoard({
     suppressNextSelectRef.current = nextSelectedIds.includes(shape.id) && !selectedIds.includes(shape.id);
     const startPositions = Object.fromEntries(
       nextSelectedIds
-        .map((shapeId) => renderedShapesById[shapeId])
+        .map((shapeId) => getRenderedShapeById(shapeId))
         .filter((selectedShape): selectedShape is CanvasShape => Boolean(selectedShape))
         .map((selectedShape) => [
           selectedShape.id,
@@ -517,7 +786,7 @@ export function CanvasBoard({
         ])
     );
     const dragShapes = nextSelectedIds
-      .map((shapeId) => renderedShapesById[shapeId])
+      .map((shapeId) => getRenderedShapeById(shapeId))
       .filter((selectedShape): selectedShape is CanvasShape => Boolean(selectedShape));
 
     const nextDragState = {
@@ -550,11 +819,15 @@ export function CanvasBoard({
       const pointer = stageRef.current?.getPointerPosition();
       if (pointer) {
         if (rightClickRef.current) rightClickRef.current.moved = true;
-        onViewportChange({
+        const deltaX = pointer.x - panDraft.startPointerX;
+        const deltaY = pointer.y - panDraft.startPointerY;
+        const nextViewport = {
           ...panDraft.startViewport,
-          x: panDraft.startViewport.x + pointer.x - panDraft.startPointerX,
-          y: panDraft.startViewport.y + pointer.y - panDraft.startPointerY,
-        });
+          x: panDraft.startViewport.x + deltaX,
+          y: panDraft.startViewport.y + deltaY,
+        };
+        panDraft.latestViewport = nextViewport;
+        applyPanTranslationToCanvases(deltaX, deltaY);
       }
       return;
     }
@@ -704,18 +977,30 @@ export function CanvasBoard({
     // Right-button release: open context menu only if the cursor did not move (= a click, not a pan)
     const rc = rightClickRef.current;
     if (rc) {
+      const panDraft = panDraftRef.current;
       rightClickRef.current = null;
       panDraftRef.current = null;
       const container = stageRef.current?.container();
       if (container) container.style.cursor = '';
+      clearCanvasPreviewFromCanvases();
+      setBoardLayersListening(true);
+      if (rc.moved && panDraft) {
+        applyViewportToLayers(panDraft.latestViewport);
+        onViewportChange(panDraft.latestViewport);
+      }
       if (!rc.moved) {
         onOpenContextMenu?.({ x: rc.clientX, y: rc.clientY });
       }
       return;
     }
 
-    if (panDraftRef.current) {
+    const panDraft = panDraftRef.current;
+    if (panDraft) {
       panDraftRef.current = null;
+      clearCanvasPreviewFromCanvases();
+      setBoardLayersListening(true);
+      applyViewportToLayers(panDraft.latestViewport);
+      onViewportChange(panDraft.latestViewport);
       return;
     }
 
@@ -829,7 +1114,7 @@ export function CanvasBoard({
         }
 
         if (current.duplicate) {
-          const originalShape = renderedShapesById[shapeId];
+          const originalShape = getRenderedShapeById(shapeId);
           if (!originalShape) {
             return;
           }
@@ -967,8 +1252,8 @@ export function CanvasBoard({
   };
 
   const connectorPoints = (connector: CanvasShape) => {
-    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
-    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
+    const fromShape = getRenderedShapeById(connector.attrs.fromShapeId);
+    const toShape = getRenderedShapeById(connector.attrs.toShapeId);
     if (!fromShape || !toShape) {
       return null;
     }
@@ -977,8 +1262,8 @@ export function CanvasBoard({
   };
 
   const liveConnectorPoints = (connector: CanvasShape) => {
-    const fromShape = connector.attrs.fromShapeId ? renderedShapesById[connector.attrs.fromShapeId] : null;
-    const toShape = connector.attrs.toShapeId ? renderedShapesById[connector.attrs.toShapeId] : null;
+    const fromShape = getRenderedShapeById(connector.attrs.fromShapeId);
+    const toShape = getRenderedShapeById(connector.attrs.toShapeId);
     if (!fromShape || !toShape) {
       return null;
     }
@@ -1043,7 +1328,7 @@ export function CanvasBoard({
       return;
     }
 
-    const from = renderedShapesById[draft.fromShapeId];
+    const from = getRenderedShapeById(draft.fromShapeId);
     if (!from) {
       return;
     }
@@ -1149,7 +1434,14 @@ export function CanvasBoard({
         onTouchMove={updateShapeDrag}
         onTouchEnd={commitShapeDrag}
       >
-        <Layer x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale} listening={false}>
+        <Layer
+          ref={gridLayerRef}
+          x={viewport.x}
+          y={viewport.y}
+          scaleX={viewport.scale}
+          scaleY={viewport.scale}
+          listening={false}
+        >
           {gridLines.map((line) => (
             <Line
               key={line.key}
@@ -1192,6 +1484,7 @@ export function CanvasBoard({
           })}
         </Layer>
         <Layer
+          ref={boardLayerRef}
           x={viewport.x}
           y={viewport.y}
           scaleX={viewport.scale}
@@ -1199,7 +1492,7 @@ export function CanvasBoard({
           listening={!dragLayerState}
         >
           {connectorDraft && (() => {
-            const from = renderedShapesById[connectorDraft.fromShapeId];
+            const from = getRenderedShapeById(connectorDraft.fromShapeId);
             if (!from) {
               return null;
             }
