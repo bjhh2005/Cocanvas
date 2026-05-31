@@ -52,11 +52,12 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
     return (
       <div className={`account-card${compact ? ' compact' : ''}`}>
         <span className="account-badge" style={{ background: color }} />
-        <div>
+        <div className="account-card__meta">
+          {!compact && <span className="account-eyebrow">已登录</span>}
           <strong>{displayName}</strong>
           <span>@{username}</span>
         </div>
-        <button type="button" onClick={logout} title="退出账号">
+        <button type="button" className="account-button secondary" onClick={logout} title="退出账号">
           <LogOut size={15} aria-hidden />
           {!compact && <span>退出</span>}
         </button>
@@ -72,25 +73,41 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
         void submit();
       }}
     >
-      <ShieldCheck size={16} aria-hidden />
-      <input
-        value={loginName}
-        placeholder="用户名"
-        autoComplete="username"
-        onChange={(event) => setLoginName(event.target.value)}
-      />
-      <input
-        value={password}
-        type="password"
-        placeholder="密码"
-        autoComplete="current-password"
-        onChange={(event) => setPassword(event.target.value)}
-      />
-      <button type="submit" disabled={loading}>
+      <div className="account-login__title">
+        <span className="account-login__icon">
+          <ShieldCheck size={15} aria-hidden />
+        </span>
+        <div>
+          <strong>账号</strong>
+          {!compact && <span>登录后可管理成员</span>}
+        </div>
+      </div>
+      <div className="account-login__fields">
+        <label className="account-field">
+          <span>用户名</span>
+          <input
+            value={loginName}
+            placeholder="alice"
+            autoComplete="username"
+            onChange={(event) => setLoginName(event.target.value)}
+          />
+        </label>
+        <label className="account-field">
+          <span>密码</span>
+          <input
+            value={password}
+            type="password"
+            placeholder="至少 4 位"
+            autoComplete="current-password"
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+      </div>
+      <button type="submit" className="account-button primary" disabled={loading}>
         <LogIn size={15} aria-hidden />
-        {!compact && <span>{loading ? '登录中' : '登录/注册'}</span>}
+        <span>{loading ? '登录中' : '登录/注册'}</span>
       </button>
-      {error && <small>{error}</small>}
+      {error && <small className="account-error" role="alert">{error}</small>}
     </form>
   );
 }

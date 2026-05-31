@@ -202,25 +202,50 @@
 
 .account-card,
 .account-login {
-  display: flex;
+  display: grid;
   align-items: center;
   gap: 8px;
   border: 1px solid #d6dde7;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #fff;
+  border-radius: 14px;
+  padding: 10px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(20, 92, 74, 0.12), transparent 34%),
+    linear-gradient(135deg, #ffffff, #f8fafc);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+}
+
+.account-card {
+  grid-template-columns: auto minmax(98px, 1fr) auto;
+}
+
+.account-login {
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: min(360px, 100%);
 }
 
 .account-card.compact,
 .account-login.compact {
   min-height: 42px;
-  padding: 7px 9px;
+  padding: 8px;
 }
 
-.account-card > div {
+.account-login.compact {
+  grid-template-columns: minmax(150px, 1fr) auto;
+  width: min(300px, 100%);
+}
+
+.account-card__meta {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
+}
+
+.account-eyebrow {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .account-card strong {
@@ -232,8 +257,7 @@
   white-space: nowrap;
 }
 
-.account-card span,
-.account-login small {
+.account-card__meta > span:last-child {
   color: #64748b;
   font-size: 11px;
   font-weight: 700;
@@ -247,41 +271,160 @@
   box-shadow: 0 0 0 1px #cbd5e1;
 }
 
-.account-login input {
-  width: 92px;
-  min-width: 0;
-  border: 0;
-  border-bottom: 1px solid #cbd5e1;
-  padding: 4px 0;
-  background: transparent;
-  font: inherit;
-  outline: none;
-}
-
-.account-login.compact input {
-  width: 76px;
-}
-
-.account-card button,
-.account-login button {
+.account-login__title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid #d6dde7;
-  border-radius: 7px;
-  min-height: 30px;
-  padding: 0 9px;
-  background: #f8fafc;
-  color: #172033;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
+  gap: 8px;
+  min-width: 0;
 }
 
-.account-login small {
-  max-width: 160px;
+.account-login.compact .account-login__title {
+  display: none;
+}
+
+.account-login__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  color: #145c4a;
+  background: #e8f4ef;
+}
+
+.account-login__title div {
+  display: grid;
+  min-width: 0;
+}
+
+.account-login__title strong {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.account-login__title span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.account-login__fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.account-login.compact .account-login__fields {
+  grid-column: auto;
+  grid-template-columns: repeat(2, minmax(68px, 1fr));
+}
+
+.account-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-field span {
+  color: #52606d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.account-login.compact .account-field span {
+  display: none;
+}
+
+.account-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #ccd6e3;
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #0f172a;
+  background: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  outline: none;
+  transition: border-color 0.14s, box-shadow 0.14s, background 0.14s;
+}
+
+.account-field input::placeholder {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.account-field input:focus {
+  border-color: #145c4a;
+  background: #fbfffd;
+  box-shadow: 0 0 0 3px rgba(20, 92, 74, 0.13);
+}
+
+.account-login.compact .account-field input {
+  padding: 7px 8px;
+}
+
+.account-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.14s, box-shadow 0.14s, opacity 0.14s;
+}
+
+.account-button.primary {
+  color: #ffffff;
+  background: #145c4a;
+  box-shadow: 0 10px 18px rgba(20, 92, 74, 0.2);
+}
+
+.account-button.secondary {
+  color: #172033;
+  background: #e8eef5;
+}
+
+.account-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.account-button.primary:hover:not(:disabled) {
+  box-shadow: 0 13px 22px rgba(20, 92, 74, 0.25);
+}
+
+.account-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
+.account-error {
+  grid-column: 1 / -1;
+  display: block;
+  max-width: 100%;
+  border-left: 3px solid #b42318;
+  border-radius: 8px;
+  padding: 6px 8px;
   color: #b42318;
+  background: #fff1f0;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.account-login.compact .account-button span {
+  display: none;
 }
 
 .room-identity input {
