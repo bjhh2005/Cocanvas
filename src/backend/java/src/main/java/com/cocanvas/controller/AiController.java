@@ -20,6 +20,6 @@ public class AiController {
             @PathVariable String roomId,
             @RequestBody AiService.AiChatRequest request
     ) {
-        return aiService.chat(request);
+        return aiService.chat(roomId, request);
     }
 }
