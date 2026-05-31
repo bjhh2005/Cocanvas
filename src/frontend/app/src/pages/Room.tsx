@@ -52,6 +52,8 @@ import {
 import { createShapeOp } from '../whiteboard/shapeFactory';
 
 const cursorIntervalMs = 50;
+const cursorMinScreenDistance = 3;
+const cursorTinyMoveRefreshMs = 250;
 const shapePreviewIntervalMs = 50;
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
 const pendingOpsStoragePrefix = 'cocanvas:pending-ops:';
@@ -102,6 +104,16 @@ type HistoryEntry = {
   undo: ShapeOperation[];
   redo: ShapeOperation[];
 };
+
+type RemoteCursorUpdate = {
+  userId: string;
+  x: number;
+  y: number;
+  displayName?: string;
+  color?: string;
+};
+
+type PenPreviewState = { points: number[]; stroke?: string; strokeWidth?: number };
 
 const cloneShapeAttrs = (attrs: ShapeAttrs = {}): ShapeAttrs => ({
   ...attrs,
@@ -254,11 +266,18 @@ export function Room() {
   const topbarRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
+  const lastCursorSentPointRef = useRef<{ x: number; y: number } | null>(null);
   const lastShapePreviewSentAt = useRef(0);
   const reconnectAttemptRef = useRef(0);
   const restoringRef = useRef(false);
   const bufferedOpsRef = useRef<ShapeOperation[]>([]);
   const pendingOpsRef = useRef<ShapeOperation[]>([]);
+  const remoteCursorBufferRef = useRef<Map<string, RemoteCursorUpdate>>(new Map());
+  const remoteCursorFrameRef = useRef<number | null>(null);
+  const previewPositionBufferRef = useRef<Record<string, { x: number; y: number }>>({});
+  const penPreviewBufferRef = useRef<Record<string, PenPreviewState>>({});
+  const previewRemovalBufferRef = useRef<Set<string>>(new Set());
+  const previewFlushFrameRef = useRef<number | null>(null);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const restoreGenerationRef = useRef(0);
   const connectionGenerationRef = useRef(0);
@@ -273,7 +292,7 @@ export function Room() {
   const setPeers = useUserStore((state) => state.setPeers);
   const addPeer = useUserStore((state) => state.addPeer);
   const removePeer = useUserStore((state) => state.removePeer);
-  const updateCursor = useUserStore((state) => state.updateCursor);
+  const updateCursors = useUserStore((state) => state.updateCursors);
   const remoteCount = useUserStore((state) => Object.keys(state.remotes).length);
   const applyOp = useShapeStore((state) => state.applyOp);
   const replaceWithSnapshot = useShapeStore((state) => state.replaceWithSnapshot);
@@ -306,6 +325,147 @@ export function Room() {
       .map((shape) => shape.id));
   }, [allShapes, productQuery, statusFilter, tagFilter]);
   const initialRoomPassword = useMemo(() => searchParams.get('password') ?? '', [searchParams]);
+
+  const flushRemoteCursors = useCallback(() => {
+    const updates = [...remoteCursorBufferRef.current.values()];
+    remoteCursorBufferRef.current.clear();
+    remoteCursorFrameRef.current = null;
+    updateCursors(updates);
+  }, [updateCursors]);
+
+  const queueRemoteCursor = useCallback((message: Extract<ServerMessage, { type: 'cursor' }>) => {
+    remoteCursorBufferRef.current.set(message.userId, {
+      userId: message.userId,
+      x: message.x,
+      y: message.y,
+      displayName: message.displayName,
+      color: message.color,
+    });
+
+    if (remoteCursorFrameRef.current === null) {
+      remoteCursorFrameRef.current = window.requestAnimationFrame(flushRemoteCursors);
+    }
+  }, [flushRemoteCursors]);
+
+  const flushRemotePreviews = useCallback(() => {
+    const removedShapeIds = previewRemovalBufferRef.current;
+    const positionUpdates = previewPositionBufferRef.current;
+    const penUpdates = penPreviewBufferRef.current;
+    previewRemovalBufferRef.current = new Set();
+    previewPositionBufferRef.current = {};
+    penPreviewBufferRef.current = {};
+    previewFlushFrameRef.current = null;
+
+    setPreviewPositions((current) => {
+      let next = current;
+      let changed = false;
+      const ensureNext = () => {
+        if (next === current) {
+          next = { ...current };
+        }
+      };
+
+      removedShapeIds.forEach((shapeId) => {
+        if (next[shapeId]) {
+          ensureNext();
+          delete next[shapeId];
+          changed = true;
+        }
+      });
+
+      Object.entries(positionUpdates).forEach(([shapeId, position]) => {
+        const existing = next[shapeId];
+        if (existing?.x === position.x && existing.y === position.y) {
+          return;
+        }
+
+        ensureNext();
+        next[shapeId] = position;
+        changed = true;
+      });
+
+      return changed ? next : current;
+    });
+
+    setPenPreviews((current) => {
+      let next = current;
+      let changed = false;
+      const ensureNext = () => {
+        if (next === current) {
+          next = { ...current };
+        }
+      };
+
+      removedShapeIds.forEach((shapeId) => {
+        if (next[shapeId]) {
+          ensureNext();
+          delete next[shapeId];
+          changed = true;
+        }
+      });
+
+      Object.entries(penUpdates).forEach(([shapeId, preview]) => {
+        ensureNext();
+        next[shapeId] = preview;
+        changed = true;
+      });
+
+      return changed ? next : current;
+    });
+  }, []);
+
+  const scheduleRemotePreviewFlush = useCallback(() => {
+    if (previewFlushFrameRef.current === null) {
+      previewFlushFrameRef.current = window.requestAnimationFrame(flushRemotePreviews);
+    }
+  }, [flushRemotePreviews]);
+
+  const clearRemotePreview = useCallback((shapeId: string) => {
+    delete previewPositionBufferRef.current[shapeId];
+    delete penPreviewBufferRef.current[shapeId];
+    previewRemovalBufferRef.current.add(shapeId);
+    scheduleRemotePreviewFlush();
+  }, [scheduleRemotePreviewFlush]);
+
+  const queueRemoteShapePreview = useCallback((message: Extract<ServerMessage, { type: 'shape-preview' }>) => {
+    const { points, stroke, strokeWidth, x, y } = message.op.attrs ?? {};
+    const shapeId = message.op.shapeId;
+    previewRemovalBufferRef.current.delete(shapeId);
+
+    if (message.op.shapeType === 'pen' && Array.isArray(points) && points.length >= 4) {
+      penPreviewBufferRef.current[shapeId] = {
+        points,
+        stroke: typeof stroke === 'string' ? stroke : undefined,
+        strokeWidth: typeof strokeWidth === 'number' ? strokeWidth : undefined,
+      };
+      delete previewPositionBufferRef.current[shapeId];
+      scheduleRemotePreviewFlush();
+      return;
+    }
+
+    if (typeof x === 'number' && typeof y === 'number') {
+      previewPositionBufferRef.current[shapeId] = { x, y };
+      delete penPreviewBufferRef.current[shapeId];
+      scheduleRemotePreviewFlush();
+    }
+  }, [scheduleRemotePreviewFlush]);
+
+  const resetRemoteTransientBuffers = useCallback(() => {
+    if (remoteCursorFrameRef.current !== null) {
+      window.cancelAnimationFrame(remoteCursorFrameRef.current);
+      remoteCursorFrameRef.current = null;
+    }
+    if (previewFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewFlushFrameRef.current);
+      previewFlushFrameRef.current = null;
+    }
+    remoteCursorBufferRef.current.clear();
+    previewPositionBufferRef.current = {};
+    penPreviewBufferRef.current = {};
+    previewRemovalBufferRef.current = new Set();
+  }, []);
+
+  useEffect(() => resetRemoteTransientBuffers, [resetRemoteTransientBuffers]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -424,24 +584,7 @@ export function Room() {
   const applyRemoteOp = useCallback((message: Extract<ServerMessage, { type: 'op' }>) => {
     const mergedHlc = hlcRef.current?.update(message.hlc) ?? message.hlc;
     const op = { ...message.op, hlc: mergedHlc, writerId: message.userId };
-    setPreviewPositions((current) => {
-      if (!current[op.shapeId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[op.shapeId];
-      return next;
-    });
-    setPenPreviews((current) => {
-      if (!current[op.shapeId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[op.shapeId];
-      return next;
-    });
+    clearRemotePreview(op.shapeId);
 
     if (restoringRef.current) {
       bufferedOpsRef.current.push(op);
@@ -449,7 +592,7 @@ export function Room() {
     }
 
     applyOp(op);
-  }, [applyOp]);
+  }, [applyOp, clearRemotePreview]);
 
   if (!hlcRef.current) {
     hlcRef.current = new HybridLogicalClock(userId);
@@ -888,7 +1031,7 @@ export function Room() {
         }
 
         if (message.type === 'cursor') {
-          updateCursor(message.userId, message.x, message.y, message.displayName, message.color);
+          queueRemoteCursor(message);
           return;
         }
 
@@ -903,25 +1046,7 @@ export function Room() {
         }
 
         if (message.type === 'shape-preview') {
-          const { points, stroke, strokeWidth, x, y } = message.op.attrs ?? {};
-          if (message.op.shapeType === 'pen' && Array.isArray(points) && points.length >= 4) {
-            setPenPreviews((current) => ({
-              ...current,
-              [message.op.shapeId]: {
-                points,
-                stroke: typeof stroke === 'string' ? stroke : undefined,
-                strokeWidth: typeof strokeWidth === 'number' ? strokeWidth : undefined,
-              },
-            }));
-            return;
-          }
-
-          if (typeof x === 'number' && typeof y === 'number') {
-            setPreviewPositions((current) => ({
-              ...current,
-              [message.op.shapeId]: { x, y },
-            }));
-          }
+          queueRemoteShapePreview(message);
           return;
         }
 
@@ -984,10 +1109,11 @@ export function Room() {
       cleanupSubscriptions?.();
       client?.close();
       connectionGenerationRef.current += 1;
+      resetRemoteTransientBuffers();
       setClient(null);
       setRoomId(null);
     };
-  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, removePeer, replayBufferedOps, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, updateCursor, userId]);
+  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, queueRemoteCursor, queueRemoteShapePreview, removePeer, replayBufferedOps, resetRemoteTransientBuffers, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, userId]);
 
   useEffect(() => {
     if (roomAccessState !== 'ready') {
@@ -1038,7 +1164,19 @@ export function Room() {
       return;
     }
 
+    const lastSentPoint = lastCursorSentPointRef.current;
+    if (lastSentPoint) {
+      const screenDistance = Math.hypot(
+        (canvasPoint.x - lastSentPoint.x) * viewport.scale,
+        (canvasPoint.y - lastSentPoint.y) * viewport.scale
+      );
+      if (screenDistance < cursorMinScreenDistance && now - lastCursorSentAt.current < cursorTinyMoveRefreshMs) {
+        return;
+      }
+    }
+
     lastCursorSentAt.current = now;
+    lastCursorSentPointRef.current = canvasPoint;
     wsClient?.sendJson({
       type: 'cursor',
       msgId: msgId(),
@@ -1204,15 +1342,7 @@ export function Room() {
     }
 
     const stampedOp = stampOp(op);
-    setPreviewPositions((current) => {
-      if (!current[stampedOp.shapeId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[stampedOp.shapeId];
-      return next;
-    });
+    clearRemotePreview(stampedOp.shapeId);
     applyOp(stampedOp);
     const pendingCount = queuePendingOp(stampedOp);
 

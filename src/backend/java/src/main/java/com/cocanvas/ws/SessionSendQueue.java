@@ -35,8 +35,13 @@ public class SessionSendQueue {
             return;
         }
 
+        String transientKey = transientMessage ? transientKeyFor(payload) : null;
         QueueState state = queues.computeIfAbsent(session.getId(), key -> new QueueState());
         synchronized (state) {
+            if (transientKey != null) {
+                state.queue.removeIf(item -> transientKey.equals(item.transientKey()));
+            }
+
             if (transientMessage && state.queue.size() >= TRANSIENT_DROP_THRESHOLD) {
                 transientDrops.incrementAndGet();
                 return;
@@ -49,7 +54,7 @@ public class SessionSendQueue {
                 return;
             }
 
-            state.queue.addLast(payload);
+            state.queue.addLast(new QueuedMessage(payload, transientKey));
             if (state.sending) {
                 return;
             }
@@ -81,23 +86,54 @@ public class SessionSendQueue {
 
     private void drain(WebSocketSession session, QueueState state) throws IOException {
         while (session.isOpen()) {
-            String payload;
+            QueuedMessage queued;
             synchronized (state) {
-                payload = state.queue.pollFirst();
-                if (payload == null) {
+                queued = state.queue.pollFirst();
+                if (queued == null) {
                     state.sending = false;
                     return;
                 }
             }
 
             synchronized (session) {
-                session.sendMessage(new TextMessage(payload));
+                session.sendMessage(new TextMessage(queued.payload()));
             }
         }
     }
 
+    private String transientKeyFor(String payload) {
+        if (payload.contains("\"type\":\"cursor\"")) {
+            String userId = jsonStringField(payload, "userId");
+            return userId == null ? null : "cursor:" + userId;
+        }
+
+        if (payload.contains("\"type\":\"shape-preview\"")) {
+            String userId = jsonStringField(payload, "userId");
+            String shapeId = jsonStringField(payload, "shapeId");
+            if (userId != null && shapeId != null) {
+                return "shape-preview:" + userId + ":" + shapeId;
+            }
+        }
+
+        return null;
+    }
+
+    private String jsonStringField(String payload, String field) {
+        String marker = "\"" + field + "\":\"";
+        int start = payload.indexOf(marker);
+        if (start < 0) {
+            return null;
+        }
+
+        start += marker.length();
+        int end = payload.indexOf('"', start);
+        return end > start ? payload.substring(start, end) : null;
+    }
+
+    private record QueuedMessage(String payload, String transientKey) {}
+
     private static class QueueState {
-        private final Deque<String> queue = new ArrayDeque<>();
+        private final Deque<QueuedMessage> queue = new ArrayDeque<>();
         private boolean sending;
     }
 }
