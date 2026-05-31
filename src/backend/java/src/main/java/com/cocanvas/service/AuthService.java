@@ -43,40 +43,45 @@ public class AuthService {
     public LoginResult login(LoginCommand command) {
         String username = cleanUsername(command.username());
         String password = command.password() == null ? "" : command.password();
-        if (username.length() < 3) {
-            throw new AuthException("用户名至少需要 3 个字符");
+        validateCredentials(username, password);
+        long now = System.currentTimeMillis();
+
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new AuthException("用户名或密码不正确"));
+        if (!matchesPassword(password, user.getPasswordHash())) {
+            throw new AuthException("用户名或密码不正确");
         }
-        if (password.length() < 4) {
-            throw new AuthException("密码至少需要 4 个字符");
+        if (!isPbkdf2Hash(user.getPasswordHash())) {
+            user.setPasswordHash(hashPassword(password));
+        }
+        user.setDisplayName(cleanDisplayName(command.displayName(), user.getDisplayName()));
+        user.setColor(cleanColor(command.color(), user.getColor()));
+        user.setLastLoginAt(now);
+        UserEntity saved = userRepository.save(user);
+        return toLoginResult(saved);
+    }
+
+    public LoginResult register(LoginCommand command) {
+        String username = cleanUsername(command.username());
+        String password = command.password() == null ? "" : command.password();
+        validateCredentials(username, password);
+        if (userRepository.findByUsername(username).isPresent()) {
+            throw new AuthException("用户名已存在，请直接登录");
         }
 
         long now = System.currentTimeMillis();
-        UserEntity user = userRepository.findByUsername(username)
-                .map(existing -> {
-                    if (!matchesPassword(password, existing.getPasswordHash())) {
-                        throw new AuthException("用户名或密码不正确");
-                    }
-                    if (!isPbkdf2Hash(existing.getPasswordHash())) {
-                        existing.setPasswordHash(hashPassword(password));
-                    }
-                    existing.setDisplayName(cleanDisplayName(command.displayName(), existing.getDisplayName()));
-                    existing.setColor(cleanColor(command.color(), existing.getColor()));
-                    existing.setLastLoginAt(now);
-                    return existing;
-                })
-                .orElseGet(() -> {
-                    UserEntity created = new UserEntity();
-                    created.setUserId("u-" + UUID.randomUUID());
-                    created.setUsername(username);
-                    created.setPasswordHash(hashPassword(password));
-                    created.setDisplayName(cleanDisplayName(command.displayName(), username));
-                    created.setColor(cleanColor(command.color(), DEFAULT_COLOR));
-                    created.setCreatedAt(now);
-                    created.setLastLoginAt(now);
-                    return created;
-                });
+        UserEntity created = new UserEntity();
+        created.setUserId("u-" + UUID.randomUUID());
+        created.setUsername(username);
+        created.setPasswordHash(hashPassword(password));
+        created.setDisplayName(cleanDisplayName(command.displayName(), username));
+        created.setColor(cleanColor(command.color(), DEFAULT_COLOR));
+        created.setCreatedAt(now);
+        created.setLastLoginAt(now);
+        return toLoginResult(userRepository.save(created));
+    }
 
-        UserEntity saved = userRepository.save(user);
+    private LoginResult toLoginResult(UserEntity saved) {
         return new LoginResult(
                 saved.getUserId(),
                 saved.getUsername(),
@@ -84,6 +89,15 @@ public class AuthService {
                 saved.getColor(),
                 issue(saved)
         );
+    }
+
+    private void validateCredentials(String username, String password) {
+        if (username.length() < 3) {
+            throw new AuthException("用户名至少需要 3 个字符");
+        }
+        if (password.length() < 4) {
+            throw new AuthException("密码至少需要 4 个字符");
+        }
     }
 
     public Optional<UserPrincipal> authenticateHeader(String authorizationHeader) {

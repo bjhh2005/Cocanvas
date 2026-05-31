@@ -31,7 +31,7 @@ class AuthRoomMembershipIntegrationTest {
 
     @Test
     void creatorBecomesOwnerAndCanEnterPasswordRoomByMemberRole() throws Exception {
-        Account alice = login("alice-" + suffix());
+        Account alice = register("alice-" + suffix());
         String roomId = "members-" + suffix();
 
         JsonNode created = postJson(post("/api/rooms").with(request -> {
@@ -61,10 +61,31 @@ class AuthRoomMembershipIntegrationTest {
     }
 
     @Test
+    void loginRequiresExistingRegisteredAccount() throws Exception {
+        String username = "split-auth-" + suffix();
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", username,
+                                "password", "pass1234"
+                        ))))
+                .andExpect(status().isUnauthorized());
+
+        Account registered = register(username);
+        JsonNode loggedIn = postJson(post("/api/auth/login"), Map.of(
+                "username", username,
+                "password", "pass1234"
+        ));
+        assertThat(loggedIn.get("userId").asText()).isEqualTo(registered.userId());
+        assertThat(loggedIn.get("authToken").asText()).isNotBlank();
+    }
+
+    @Test
     void ownerCanGrantMemberRoleAndOwnerRoleCannotBeSelfDowngraded() throws Exception {
-        Account alice = login("owner-" + suffix());
-        Account bob = login("editor-" + suffix());
-        Account eve = login("viewer-" + suffix());
+        Account alice = register("owner-" + suffix());
+        Account bob = register("editor-" + suffix());
+        Account eve = register("viewer-" + suffix());
         String roomId = "acl-" + suffix();
 
         postJson(post("/api/rooms").header("Authorization", "Bearer " + alice.token()), Map.of(
@@ -108,8 +129,8 @@ class AuthRoomMembershipIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
-    private Account login(String username) throws Exception {
-        JsonNode response = postJson(post("/api/auth/login"), Map.of(
+    private Account register(String username) throws Exception {
+        JsonNode response = postJson(post("/api/auth/register"), Map.of(
                 "username", username,
                 "password", "pass1234",
                 "displayName", username,

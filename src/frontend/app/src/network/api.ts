@@ -116,14 +116,34 @@ export const loginUser = async (
   displayName?: string,
   color?: string,
 ): Promise<AuthUser> => {
-  const response = await fetch('/api/auth/login', {
+  return submitAuth('/api/auth/login', username, password, displayName, color, '登录失败');
+};
+
+export const registerUser = async (
+  username: string,
+  password: string,
+  displayName?: string,
+  color?: string,
+): Promise<AuthUser> => {
+  return submitAuth('/api/auth/register', username, password, displayName, color, '注册失败');
+};
+
+const submitAuth = async (
+  url: string,
+  username: string,
+  password: string,
+  displayName: string | undefined,
+  color: string | undefined,
+  fallbackMessage: string,
+): Promise<AuthUser> => {
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, displayName, color }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(payload?.message ?? '登录失败');
+    throw new Error(payload?.message ?? fallbackMessage);
   }
 
   return response.json();

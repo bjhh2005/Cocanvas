@@ -282,6 +282,45 @@
   display: none;
 }
 
+.account-mode-toggle {
+  display: inline-flex;
+  justify-self: end;
+  overflow: hidden;
+  border: 1px solid #d6dde7;
+  border-radius: 999px;
+  padding: 3px;
+  background: #eef3f8;
+}
+
+.account-mode-toggle button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: #64748b;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+
+.account-mode-toggle button.active {
+  color: #ffffff;
+  background: #145c4a;
+  box-shadow: 0 6px 14px rgba(20, 92, 74, 0.18);
+}
+
+.account-login.compact .account-mode-toggle {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+}
+
+.account-login.compact .account-mode-toggle button {
+  flex: 1;
+  padding: 4px 8px;
+}
+
 .account-login__icon {
   display: inline-grid;
   place-items: center;
@@ -386,6 +425,7 @@
 }
 
 .account-button.primary {
+  grid-column: 1 / -1;
   color: #ffffff;
   background: #145c4a;
   box-shadow: 0 10px 18px rgba(20, 92, 74, 0.2);
@@ -425,6 +465,10 @@
 
 .account-login.compact .account-button span {
   display: none;
+}
+
+.account-login.compact .account-button.primary {
+  grid-column: auto;
 }
 
 .room-identity input {

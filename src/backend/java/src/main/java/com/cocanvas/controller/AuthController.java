@@ -32,6 +32,16 @@ public class AuthController {
         ));
     }
 
+    @PostMapping({"/api/auth/register", "/auth/register"})
+    public LoginResult register(@RequestBody LoginRequest request) {
+        return authService.register(new LoginCommand(
+                request.username(),
+                request.password(),
+                request.displayName(),
+                request.color()
+        ));
+    }
+
     @GetMapping({"/api/auth/me", "/auth/me"})
     public LoginResult me(@RequestHeader(value = "Authorization", required = false) String authorization) {
         return authService.authenticateHeader(authorization)

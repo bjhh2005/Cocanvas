@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LogIn, LogOut, ShieldCheck } from 'lucide-react';
-import { loginUser } from '../network/api';
+import { loginUser, registerUser } from '../network/api';
 import { useUserStore } from '../store/userStore';
 
 type AccountPanelProps = {
@@ -17,6 +17,7 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
   const clearAccount = useUserStore((state) => state.clearAccount);
   const [loginName, setLoginName] = useState(username);
   const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,13 +31,14 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
     setLoading(true);
     setError(null);
     try {
-      const account = await loginUser(loginName, password, displayName, color);
+      const authAction = mode === 'login' ? loginUser : registerUser;
+      const account = await authAction(loginName, password, displayName, color);
       setAccount(account);
       setLoginName(account.username);
       setPassword('');
       onAccountChange?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
+      setError(err instanceof Error ? err.message : mode === 'login' ? '登录失败' : '注册失败');
     } finally {
       setLoading(false);
     }
@@ -79,8 +81,32 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
         </span>
         <div>
           <strong>账号</strong>
-          {!compact && <span>登录后可管理成员</span>}
+          {!compact && <span>{mode === 'login' ? '登录已有账号' : '创建新账号'}</span>}
         </div>
+      </div>
+      <div className="account-mode-toggle" role="tablist" aria-label="账号操作">
+        <button
+          type="button"
+          className={mode === 'login' ? 'active' : ''}
+          aria-selected={mode === 'login'}
+          onClick={() => {
+            setMode('login');
+            setError(null);
+          }}
+        >
+          登录
+        </button>
+        <button
+          type="button"
+          className={mode === 'register' ? 'active' : ''}
+          aria-selected={mode === 'register'}
+          onClick={() => {
+            setMode('register');
+            setError(null);
+          }}
+        >
+          注册
+        </button>
       </div>
       <div className="account-login__fields">
         <label className="account-field">
@@ -105,7 +131,7 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
       </div>
       <button type="submit" className="account-button primary" disabled={loading}>
         <LogIn size={15} aria-hidden />
-        <span>{loading ? '登录中' : '登录/注册'}</span>
+        <span>{loading ? (mode === 'login' ? '登录中' : '注册中') : (mode === 'login' ? '登录' : '注册')}</span>
       </button>
       {error && <small className="account-error" role="alert">{error}</small>}
     </form>
