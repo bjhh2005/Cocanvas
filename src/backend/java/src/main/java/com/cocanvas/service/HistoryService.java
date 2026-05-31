@@ -78,6 +78,19 @@ public class HistoryService {
         replicaService.roomIds().forEach(this::saveSnapshot);
     }
 
+    /**
+     * Timeline anchors for the history slider UI:
+     * - roomCreatedAt: left edge of the slider
+     * - snapshots: positions to render as tick marks
+     * - latestOpAt: right edge (most recent activity)
+     */
+    public HistoryAnchors anchors(String roomId, long roomCreatedAt) {
+        List<Long> snapshots = snapshotRepository.findCreatedAtByRoomIdOrderByCreatedAtAsc(roomId);
+        long latestOpAt = operationLogRepository.findMaxCreatedAtByRoomId(roomId)
+                .orElse(System.currentTimeMillis());
+        return new HistoryAnchors(roomCreatedAt, snapshots, latestOpAt);
+    }
+
     public HistoryResponse history(String roomId, long at) {
         HistorySnapshot snapshot = snapshotRepository
                 .findFirstByRoomIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(roomId, at)
@@ -103,13 +116,27 @@ public class HistoryService {
                 return;
             }
 
+            long now = System.currentTimeMillis();
             SnapshotEntity entity = new SnapshotEntity();
             entity.setSnapshotId(UUID.randomUUID().toString());
             entity.setRoomId(roomId);
-            entity.setCreatedAt(System.currentTimeMillis());
+            entity.setCreatedAt(now);
             entity.setHlc("");
             entity.setPayload(objectMapper.writeValueAsString(replicaService.versionedSnapshot(roomId)));
             snapshotRepository.save(entity);
+
+            // Prune op logs that are fully covered by the previous snapshot.
+            // Strategy: keep ops from the second-most-recent snapshot onwards so any
+            // point in time can still be replayed (snapshot N-1 + ops[N-1..at]).
+            snapshotRepository.findFirstByRoomIdAndCreatedAtLessThanOrderByCreatedAtDesc(roomId, now)
+                    .ifPresent(prev -> {
+                        int deleted = operationLogRepository.deleteByRoomIdAndCreatedAtBefore(roomId, prev.getCreatedAt());
+                        if (deleted > 0) {
+                            // Logged at debug level — pruning is routine housekeeping.
+                            org.slf4j.LoggerFactory.getLogger(HistoryService.class)
+                                    .debug("Pruned {} op logs for room {} (before snapshot {})", deleted, roomId, prev.getSnapshotId());
+                        }
+                    });
         } catch (Exception ignored) {
             // Snapshotting should never interrupt live collaboration.
         }
@@ -141,5 +168,8 @@ public class HistoryService {
     }
 
     public record HistoryOp(String opId, String userId, String hlc, long createdAt, String payload) {
+    }
+
+    public record HistoryAnchors(long roomCreatedAt, List<Long> snapshots, long latestOpAt) {
     }
 }

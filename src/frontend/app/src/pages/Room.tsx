@@ -30,7 +30,7 @@ import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
 import { UserIdentityEditor } from '../components/UserIdentityEditor';
 import { HybridLogicalClock } from '../crdt/hlc';
-import { getRoom, getRoomHistory, fetchCacheStats, fetchQueueStats, type HistoryResponse, type CacheStatsResponse, type QueueStatsResponse } from '../network/api';
+import { getRoom, getRoomHistory, fetchCacheStats, fetchQueueStats, fetchHistoryAnchors, type HistoryResponse, type CacheStatsResponse, type QueueStatsResponse, type HistoryAnchors } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
@@ -213,6 +213,8 @@ export function Room() {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStatsResponse | null>(null);
   const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
+  const [historyAnchors, setHistoryAnchors] = useState<HistoryAnchors | null>(null);
+  const [historyMode, setHistoryMode] = useState(false);
   const clipboardRef = useRef<ShapeOperation[]>([]);
   const undoStackRef = useRef<HistoryEntry[]>([]);
   const redoStackRef = useRef<HistoryEntry[]>([]);
@@ -1755,19 +1757,38 @@ export function Room() {
     return () => clearInterval(id);
   }, []);
 
-  const handleLoadHistory = async () => {
+  // Load anchors once when room becomes ready
+  useEffect(() => {
+    if (roomAccessState !== 'ready' || !roomId) return;
+    fetchHistoryAnchors(roomId).then(setHistoryAnchors).catch(() => {});
+  }, [roomAccessState, roomId]);
+
+  const handleApplyHistory = useCallback(async (at: number) => {
+    setHistoryAt(at);
     setHistoryLoading(true);
     try {
-      const history = await getRoomHistory(roomId, historyAt);
-      const preview = summarizeHistoryState(history, historyAt);
+      const history = await getRoomHistory(roomId, at);
+      const preview = summarizeHistoryState(history, at);
       setHistoryPreview(preview);
-      setEvents((current) => [`history preview: ${preview.snapshotShapes} snapshot shapes + ${preview.ops} ops`, ...current].slice(0, 5));
+      applyHistoryState(history);
+      setHistoryMode(true);
     } catch (err) {
       setEvents((current) => [`history error: ${err instanceof Error ? err.message : 'unknown'}`, ...current].slice(0, 5));
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, [roomId, summarizeHistoryState, applyHistoryState]);
+
+  const handleExitHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      await restoreLatestState();
+      setHistoryMode(false);
+      setHistoryPreview(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [restoreLatestState]);
 
   const connectedNode = useMemo(() => {
     if (!roomWsUrl) {
@@ -1953,14 +1974,23 @@ export function Room() {
           historyAt={historyAt}
           historyLoading={historyLoading}
           historyPreview={historyPreview}
+          historyAnchors={historyAnchors}
+          historyMode={historyMode}
           onHistoryAtChange={setHistoryAt}
-          onLoadHistory={handleLoadHistory}
+          onApplyHistory={handleApplyHistory}
+          onExitHistory={handleExitHistory}
           onHeightChange={handleMeetingBarHeight}
           chatMessages={chatMessages}
           onSendMessage={handleSendChatMessage}
           onSendEmoji={handleSendEmoji}
           remoteEmoji={remoteEmoji}
         />
+        {historyMode && (
+          <div className="history-mode-banner">
+            <span>历史回放模式 · {new Date(historyAt).toLocaleString()}</span>
+            <button type="button" onClick={() => void handleExitHistory()}>返回实时</button>
+          </div>
+        )}
         <div className="zoom-controls" aria-label="Zoom controls">
           <button type="button" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} aria-hidden /></button>
           <button type="button" title="Zoom out" onClick={() => zoomBy(0.9)}><ZoomOut size={16} aria-hidden /></button>

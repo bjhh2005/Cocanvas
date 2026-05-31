@@ -2368,53 +2368,95 @@ kbd {
   padding: 16px 20px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
-.meeting-bar__history-controls {
+/* ── Timeline slider ── */
+.history-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-timeline__labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.history-timeline__selected-label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.meeting-bar__history-icon {
-  color: #6b7280;
-  flex-shrink: 0;
-}
-
-.meeting-bar__history-label {
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
   font-weight: 600;
-  color: #374151;
-  white-space: nowrap;
-  flex-shrink: 0;
+  color: #1d4ed8;
 }
 
-.meeting-bar__history-input {
-  flex: 1;
-  min-width: 180px;
-  height: 36px;
-  padding: 0 10px;
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: white;
-  color: #111827;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.meeting-bar__history-input:focus {
-  border-color: #1d4ed8;
-}
-
-.meeting-bar__history-load-btn {
-  display: inline-flex;
+.history-timeline__track {
+  position: relative;
+  height: 32px;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 16px;
+}
+
+/* Snapshot tick marks rendered above the slider track */
+.history-timeline__tick {
+  position: absolute;
+  top: 4px;
+  width: 3px;
+  height: 12px;
+  background: #93c5fd;
+  border-radius: 2px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.history-timeline__slider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(to right, #bfdbfe, #1d4ed8);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.history-timeline__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 3px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  cursor: grab;
+}
+
+.history-timeline__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 3px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  cursor: grab;
+}
+
+/* ── Action buttons ── */
+.meeting-bar__history-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.meeting-bar__history-apply-btn {
+  flex: 1;
   height: 36px;
   font: inherit;
   font-size: 13px;
@@ -2424,20 +2466,37 @@ kbd {
   background: #1d4ed8;
   color: white;
   cursor: pointer;
-  white-space: nowrap;
   transition: background 0.15s, opacity 0.15s;
-  flex-shrink: 0;
 }
 
-.meeting-bar__history-load-btn:hover:not(:disabled) {
+.meeting-bar__history-apply-btn:hover:not(:disabled) {
   background: #1e40af;
 }
 
-.meeting-bar__history-load-btn:disabled {
+.meeting-bar__history-apply-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
+.meeting-bar__history-exit-btn {
+  flex: 1;
+  height: 36px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid #dc2626;
+  border-radius: 8px;
+  background: white;
+  color: #dc2626;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.meeting-bar__history-exit-btn:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+/* ── Result badges ── */
 .meeting-bar__history-result {
   display: flex;
   align-items: center;
@@ -2458,14 +2517,57 @@ kbd {
   white-space: nowrap;
 }
 
-.meeting-bar__history-time {
-  font-size: 12px;
-  color: #6b7280;
-}
-
 .meeting-bar__history-tip {
   margin: 0;
   font-size: 12px;
   color: #9ca3af;
   line-height: 1.5;
+}
+
+.history-tick-legend {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #93c5fd;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+/* ── History mode canvas banner ── */
+.history-mode-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  background: rgba(29, 78, 216, 0.92);
+  backdrop-filter: blur(6px);
+  color: white;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  z-index: 20;
+  pointer-events: all;
+  white-space: nowrap;
+}
+
+.history-mode-banner button {
+  padding: 4px 12px;
+  border: 1.5px solid rgba(255,255,255,0.7);
+  border-radius: 12px;
+  background: transparent;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.history-mode-banner button:hover {
+  background: rgba(255,255,255,0.15);
 }

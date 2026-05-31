@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Download, History, Send, Smile } from 'lucide-react';
+import { ChevronDown, ChevronUp, History, Send, Smile } from 'lucide-react';
 import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
+import type { HistoryAnchors } from '../network/api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -39,8 +40,11 @@ interface MeetingBarProps {
   historyAt: number;
   historyLoading: boolean;
   historyPreview: HistoryPreview | null;
+  historyAnchors: HistoryAnchors | null;
+  historyMode: boolean;
   onHistoryAtChange: (value: number) => void;
-  onLoadHistory: () => void;
+  onApplyHistory: (at: number) => void;
+  onExitHistory: () => void;
   onHeightChange?: (height: number) => void;
   // Synced state
   chatMessages: ChatMessage[];
@@ -56,12 +60,6 @@ const EMOJI_LIST = ['😄', '👍', '🔥', '❤️', '💡', '🎉', '😮', '�
 let _msgId = 0;
 const uid = () => `msg-${Date.now()}-${++_msgId}`;
 
-const formatDatetimeLocal = (ts: number) => {
-  const d = new Date(ts);
-  // datetime-local input expects "YYYY-MM-DDTHH:mm"
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -77,8 +75,11 @@ export function MeetingBar({
   historyAt,
   historyLoading,
   historyPreview,
+  historyAnchors,
+  historyMode,
   onHistoryAtChange,
-  onLoadHistory,
+  onApplyHistory,
+  onExitHistory,
   onHeightChange,
   chatMessages,
   onSendMessage,
@@ -153,11 +154,6 @@ export function MeetingBar({
   const formatTime = (ts: number) => {
     const d = new Date(ts);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-  };
-
-  const handleDatetimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const ts = new Date(e.target.value).getTime();
-    if (!isNaN(ts)) onHistoryAtChange(ts);
   };
 
   return (
@@ -342,48 +338,93 @@ export function MeetingBar({
           {/* ── History tab ── */}
           {tab === 'history' && (
             <div className="meeting-bar__history" role="tabpanel">
-              <div className="meeting-bar__history-controls">
-                <History size={16} className="meeting-bar__history-icon" aria-hidden />
-                <label htmlFor="mb-history-at" className="meeting-bar__history-label">
-                  选择时间点
-                </label>
-                <input
-                  id="mb-history-at"
-                  type="datetime-local"
-                  className="meeting-bar__history-input"
-                  value={formatDatetimeLocal(historyAt)}
-                  onChange={handleDatetimeChange}
-                />
-                <button
-                  type="button"
-                  className="meeting-bar__history-load-btn"
-                  onClick={onLoadHistory}
-                  disabled={historyLoading}
-                >
-                  {historyLoading
-                    ? <><Download size={15} aria-hidden /> 加载中…</>
-                    : <><History size={15} aria-hidden /> 查看历史</>
-                  }
-                </button>
-              </div>
+              {(() => {
+                const minTs = historyAnchors?.roomCreatedAt ?? (historyAt - 3_600_000);
+                const maxTs = historyAnchors?.latestOpAt ?? Date.now();
+                const range = Math.max(maxTs - minTs, 1);
+                const pct = (ts: number) => `${((ts - minTs) / range * 100).toFixed(2)}%`;
 
-              {historyPreview && (
-                <div className="meeting-bar__history-result">
-                  <span className="meeting-bar__history-badge">
-                    快照 {historyPreview.snapshotShapes} 个图形
-                  </span>
-                  <span className="meeting-bar__history-badge">
-                    增量 {historyPreview.ops} 条操作
-                  </span>
-                  <span className="meeting-bar__history-time">
-                    {new Date(historyPreview.at).toLocaleString()}
-                  </span>
-                </div>
-              )}
+                const formatRelative = (ts: number) => {
+                  const diff = Date.now() - ts;
+                  if (diff < 60_000) return '刚刚';
+                  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+                  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+                  return new Date(ts).toLocaleString();
+                };
 
-              <p className="meeting-bar__history-tip">
-                选择历史时间点可预览该时刻的画布状态，不会影响当前协作内容。
-              </p>
+                return (
+                  <>
+                    <div className="history-timeline">
+                      <div className="history-timeline__labels">
+                        <span>{new Date(minTs).toLocaleDateString()}</span>
+                        <span className="history-timeline__selected-label">
+                          <History size={13} aria-hidden />
+                          {formatRelative(historyAt)} · {new Date(historyAt).toLocaleTimeString()}
+                        </span>
+                        <span>现在</span>
+                      </div>
+
+                      <div className="history-timeline__track">
+                        {/* Snapshot tick marks */}
+                        {historyAnchors?.snapshots.map((ts) => (
+                          <span
+                            key={ts}
+                            className="history-timeline__tick"
+                            style={{ left: pct(ts) }}
+                            title={new Date(ts).toLocaleString()}
+                          />
+                        ))}
+                        <input
+                          type="range"
+                          className="history-timeline__slider"
+                          min={minTs}
+                          max={maxTs}
+                          step={1000}
+                          value={historyAt}
+                          onChange={(e) => onHistoryAtChange(Number(e.target.value))}
+                          onPointerUp={(e) => {
+                            const at = Number(e.currentTarget.value);
+                            onHistoryAtChange(at);
+                            onApplyHistory(at);
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {historyPreview && (
+                      <div className="meeting-bar__history-result">
+                        <span className="meeting-bar__history-badge">快照 {historyPreview.snapshotShapes} 个图形</span>
+                        <span className="meeting-bar__history-badge">增量 {historyPreview.ops} 条操作</span>
+                      </div>
+                    )}
+
+                    <div className="meeting-bar__history-actions">
+                      <button
+                        type="button"
+                        className="meeting-bar__history-apply-btn"
+                        onClick={() => onApplyHistory(historyAt)}
+                        disabled={historyLoading}
+                      >
+                        {historyLoading ? '加载中…' : '在画布预览'}
+                      </button>
+                      {historyMode && (
+                        <button
+                          type="button"
+                          className="meeting-bar__history-exit-btn"
+                          onClick={onExitHistory}
+                          disabled={historyLoading}
+                        >
+                          返回实时
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="meeting-bar__history-tip">
+                      拖动滑块选择时间点，快照刻度 <span className="history-tick-legend" /> 表示自动存档位置。
+                    </p>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

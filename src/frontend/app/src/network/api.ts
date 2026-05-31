@@ -157,6 +157,18 @@ export type QueueStatsResponse = {
   overloadDisconnects: number;
 };
 
+export type HistoryAnchors = {
+  roomCreatedAt: number;
+  snapshots: number[];
+  latestOpAt: number;
+};
+
+export const fetchHistoryAnchors = async (roomId: string): Promise<HistoryAnchors> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/history/anchors`);
+  if (!response.ok) throw new Error('Failed to fetch history anchors');
+  return response.json();
+};
+
 export const fetchCacheStats = async (): Promise<CacheStatsResponse> => {
   const response = await fetch('/api/cluster/cache-stats');
   if (!response.ok) throw new Error('Failed to fetch cache stats');
