@@ -28,6 +28,8 @@ services:
       - frontend-pnpm-store:/pnpm/store
     environment:
       - CHOKIDAR_USEPOLLING=true
+      # 局域网设备访问时 HMR 回连用的端口，与 Nginx 对外端口保持一致
+      - VITE_PUBLIC_PORT=${NGINX_HOST_PORT:-8088}
     # 由于统一被 nginx 接管，宿主机不直接映射前端端口（避免冲突），通过 localhost:80 访问即可
     # ports:
     #   - "5173:5173"
