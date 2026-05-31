@@ -20,7 +20,7 @@ public class AiController {
             @PathVariable String roomId,
             @RequestBody AiService.AiChatRequest request
     ) {
-        return aiService.chat(request);
+        return aiService.chat(roomId, request);
     }
 
     @PostMapping({"/api/rooms/{roomId}/ai/orchestrate", "/rooms/{roomId}/ai/orchestrate"})
@@ -28,7 +28,7 @@ public class AiController {
             @PathVariable String roomId,
             @RequestBody AiService.AiChatRequest request
     ) {
-        return aiService.orchestrate(request);
+        return aiService.orchestrate(roomId, request);
     }
 
     @PostMapping({"/api/rooms/{roomId}/ai/summarize", "/rooms/{roomId}/ai/summarize"})
@@ -36,6 +36,6 @@ public class AiController {
             @PathVariable String roomId,
             @RequestBody AiService.AiChatRequest request
     ) {
-        return aiService.summarize(request);
+        return aiService.summarize(roomId, request);
     }
 }

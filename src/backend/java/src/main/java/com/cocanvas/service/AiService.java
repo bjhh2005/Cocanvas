@@ -7,11 +7,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,17 +20,29 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @Service
 public class AiService {
 
     private static final Logger log = LoggerFactory.getLogger(AiService.class);
     private static final int MAX_AI_OPS = 120;
+    private static final int MAX_ERROR_BODY_CHARS = 600;
+    private static final int MAX_MESSAGE_CHARS = 600;
     private static final Set<String> ALLOWED_OP_TYPES = Set.of("create", "update", "delete");
     private static final Set<String> ALLOWED_SHAPE_TYPES = Set.of(
             "rect", "roundedRect", "circle", "diamond", "triangle", "text",
             "sticky", "connector", "pen", "comment", "frame", "card"
     );
+    private static final Set<String> STRING_ATTRS = Set.of(
+            "fill", "stroke", "text", "textColor", "fontStyle", "title", "body", "assignee"
+    );
+    private static final Set<String> NUMBER_ATTRS = Set.of(
+            "x", "y", "w", "h", "radius", "strokeWidth", "fontSize", "cornerRadius", "zIndex", "votes"
+    );
+    private static final Set<String> BOOLEAN_ATTRS = Set.of("resolved", "arrowEnd");
+    private static final Set<String> ANCHORS = Set.of("top", "right", "bottom", "left", "center");
 
     // ── System prompt ─────────────────────────────────────────────────────────
     private static final String SYSTEM_PROMPT = """
@@ -199,13 +212,35 @@ public class AiService {
     @Value("${ai.model:deepseek-chat}")
     private String model;
 
+    @Value("${ai.timeout-ms:20000}")
+    private long timeoutMs;
+
+    @Value("${ai.max-tokens:2048}")
+    private int maxTokens;
+
+    @Value("${ai.max-prompt-chars:4000}")
+    private int maxPromptChars;
+
+    @Value("${ai.max-context-chars:12000}")
+    private int maxContextChars;
+
+    @Value("${ai.max-ops:8}")
+    private int maxOps;
+
+    @Value("${ai.rate-limit-window-ms:60000}")
+    private long rateLimitWindowMs;
+
+    @Value("${ai.rate-limit-max-requests:8}")
+    private int rateLimitMaxRequests;
+
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final ConcurrentMap<String, RateLimitBucket> rateLimits = new ConcurrentHashMap<>();
 
     public AiService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
+                .connectTimeout(Duration.ofSeconds(5))
                 .build();
     }
 
@@ -216,57 +251,85 @@ public class AiService {
     public record AiSummaryResponse(String markdown) {}
 
     // ── Single-shot chat (create/update/delete in one model call) ──────────────
-    public AiChatResponse chat(AiChatRequest request) {
-        if (apiKey == null || apiKey.isBlank()) {
+    public AiChatResponse chat(String roomId, AiChatRequest request) {
+        PreparedRequest prepared = prepareRequest(request);
+        if (prepared.prompt().isBlank()) {
+            return new AiChatResponse("请输入要让 AI 协助处理的问题。", List.of());
+        }
+        if (!isConfigured()) {
             return new AiChatResponse("AI 功能未配置，请设置 AI_API_KEY 环境变量。", List.of());
         }
+        if (!allowRequest(roomId)) {
+            return new AiChatResponse("AI 请求过于频繁，请稍等一分钟后再试。", List.of());
+        }
+        return chatInternal(roomId, prepared);
+    }
+
+    public AiChatResponse chat(AiChatRequest request) {
+        return chat("unknown", request);
+    }
+
+    public AiSummaryResponse summarize(String roomId, AiChatRequest request) {
+        PreparedRequest prepared = prepareRequest(request);
+        if (prepared.prompt().isBlank()) {
+            return new AiSummaryResponse("请输入要让 AI 协助总结的问题。");
+        }
+        if (!isConfigured()) {
+            return new AiSummaryResponse("AI 功能未配置，请设置 AI_API_KEY 环境变量。");
+        }
+        if (!allowRequest(roomId)) {
+            return new AiSummaryResponse("AI 请求过于频繁，请稍等一分钟后再试。");
+        }
+
         try {
-            String userContent = "【当前白板信息】\n" + request.boardContext()
-                    + "\n\n【用户请求】\n" + request.prompt();
-            String content = callModel(SYSTEM_PROMPT, userContent);
-            JsonNode parsed = objectMapper.readTree(extractJsonObject(content));
-            String message = parsed.path("message").asText("已生成内容。");
-            return new AiChatResponse(message, prepareOps(parsed.path("ops")));
+            String userContent = "【当前白板信息】\n" + prepared.boardContext()
+                    + "\n\n【总结要求】\n" + prepared.prompt();
+            String markdown = stripFences(callModel(SUMMARY_PROMPT, userContent, 0.2)).strip();
+            return new AiSummaryResponse(markdown.isBlank() ? "AI 未返回会议总结。" : markdown);
+        } catch (HttpTimeoutException e) {
+            log.warn("AI summarize timeout for room {}", roomId);
+            return new AiSummaryResponse("AI 总结请求超时，请稍后重试或缩短白板内容。");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("AI summarize interrupted for room {}", roomId);
+            return new AiSummaryResponse("AI 总结请求已中断，请稍后重试。");
         } catch (Exception e) {
-            log.error("AI chat error", e);
-            return new AiChatResponse("AI 响应出错：" + e.getMessage(), List.of());
+            log.error("AI summarize error", e);
+            return new AiSummaryResponse("AI 总结暂时不可用，请稍后重试。");
         }
     }
 
     public AiSummaryResponse summarize(AiChatRequest request) {
-        if (apiKey == null || apiKey.isBlank()) {
-            return new AiSummaryResponse("AI 功能未配置，请设置 AI_API_KEY 环境变量。");
-        }
-        try {
-            String userContent = "【当前白板信息】\n" + request.boardContext()
-                    + "\n\n【总结要求】\n" + request.prompt();
-            String markdown = stripFences(callModel(SUMMARY_PROMPT, userContent)).strip();
-            return new AiSummaryResponse(markdown.isBlank() ? "AI 未返回会议总结。" : markdown);
-        } catch (Exception e) {
-            log.error("AI summarize error", e);
-            return new AiSummaryResponse("AI 总结出错：" + e.getMessage());
-        }
+        return summarize("unknown", request);
     }
 
     // ── LangChain-style multi-agent orchestration ──────────────────────────────
     // 1) Planner 主 AI：决定划分多少区域、各区域主题与互不重叠的边界框
     // 2) 多个 Sub AI：并行在各自边界框内生成内容
     // 3) Merge AI：根据各区域产出，补充跨区域连接线与总标题
-    public AiChatResponse orchestrate(AiChatRequest request) {
-        if (apiKey == null || apiKey.isBlank()) {
+    public AiChatResponse orchestrate(String roomId, AiChatRequest request) {
+        PreparedRequest prepared = prepareRequest(request);
+        if (prepared.prompt().isBlank()) {
+            return new AiChatResponse("请输入要让 AI 协助处理的问题。", List.of());
+        }
+        if (!isConfigured()) {
             return new AiChatResponse("AI 功能未配置，请设置 AI_API_KEY 环境变量。", List.of());
         }
+        if (!allowRequest(roomId)) {
+            return new AiChatResponse("AI 请求过于频繁，请稍等一分钟后再试。", List.of());
+        }
+
         try {
             // ── Step 1: Planner ──
-            String plannerUser = "【当前白板信息】\n" + request.boardContext()
-                    + "\n\n【用户请求】\n" + request.prompt();
-            JsonNode plan = objectMapper.readTree(extractJsonObject(callModel(PLANNER_PROMPT, plannerUser)));
+            String plannerUser = "【当前白板信息】\n" + prepared.boardContext()
+                    + "\n\n【用户请求】\n" + prepared.prompt();
+            JsonNode plan = objectMapper.readTree(extractJsonObject(callModel(PLANNER_PROMPT, plannerUser, 0.2)));
             String strategy = plan.path("strategy").asText("direct");
             JsonNode regions = plan.path("regions");
 
             // 简单/修改类请求 → 退回单次调用
             if (!"multi".equals(strategy) || !regions.isArray() || regions.size() < 2) {
-                return chat(request);
+                return chatInternal(roomId, prepared);
             }
 
             // ── Step 2: 各区域并行生成 ──
@@ -280,7 +343,7 @@ public class AiService {
 
             List<CompletableFuture<List<Map<String, Object>>>> futures = new ArrayList<>();
             for (JsonNode region : regionList) {
-                futures.add(CompletableFuture.supplyAsync(() -> generateRegion(region, request.prompt())));
+                futures.add(CompletableFuture.supplyAsync(() -> generateRegion(region, prepared.prompt())));
             }
 
             List<Map<String, Object>> allOps = new ArrayList<>();
@@ -308,34 +371,88 @@ public class AiService {
             }
 
             // ── Step 3: Merge ──
-            String mergeUser = "用户原始目标：" + request.prompt()
+            String mergeUser = "用户原始目标：" + prepared.prompt()
                     + "\n\n各子区域已生成以下节点（id 可用于连接线）：\n" + nodeSummary;
             String mergeMsg = "已通过多智能体协作完成：规划 " + regionList.size() + " 个区域并合并。";
             try {
-                JsonNode merge = objectMapper.readTree(extractJsonObject(callModel(MERGE_PROMPT, mergeUser)));
-                mergeMsg = merge.path("message").asText(mergeMsg);
-                // Merge 产出的连接线/标题引用的是已存在的真实 id，remapOps 只会给它自己 create 的新图形换 id
+                JsonNode merge = objectMapper.readTree(extractJsonObject(callModel(MERGE_PROMPT, mergeUser, 0.2)));
+                mergeMsg = trimToLimit(merge.path("message").asText(mergeMsg), MAX_MESSAGE_CHARS);
                 allOps.addAll(prepareOps(merge.path("ops")));
             } catch (Exception e) {
                 log.warn("Merge step failed, returning region ops only: {}", e.getMessage());
             }
 
-            return new AiChatResponse(mergeMsg, allOps);
+            return new AiChatResponse(mergeMsg + safeSuffix(allOps), allOps);
+        } catch (HttpTimeoutException e) {
+            log.warn("AI orchestration timeout for room {}", roomId);
+            return new AiChatResponse("AI 请求超时，请稍后重试或缩短输入内容。", List.of());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("AI orchestration interrupted for room {}", roomId);
+            return new AiChatResponse("AI 请求已中断，请稍后重试。", List.of());
         } catch (Exception e) {
             log.error("AI orchestrate error", e);
-            // 编排失败时优雅降级为单次调用
-            return chat(request);
+            return chatInternal(roomId, prepared);
+        }
+    }
+
+    public AiChatResponse orchestrate(AiChatRequest request) {
+        return orchestrate("unknown", request);
+    }
+
+    private AiChatResponse chatInternal(String roomId, PreparedRequest prepared) {
+        try {
+            String userContent = "【当前白板信息】\n" + prepared.boardContext()
+                    + "\n\n【用户请求】\n" + prepared.prompt();
+            String content = callModel(SYSTEM_PROMPT, userContent, 0.35);
+            return parseModelContent(content);
+        } catch (HttpTimeoutException e) {
+            log.warn("AI request timeout for room {}", roomId);
+            return new AiChatResponse("AI 请求超时，请稍后重试或缩短输入内容。", List.of());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("AI request interrupted for room {}", roomId);
+            return new AiChatResponse("AI 请求已中断，请稍后重试。", List.of());
+        } catch (Exception e) {
+            log.error("AI chat error", e);
+            return new AiChatResponse("AI 响应暂时不可用，请稍后重试。", List.of());
+        }
+    }
+
+    private AiChatResponse parseOpenAiResponse(String responseBody) {
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            String rawText = root.path("choices").path(0).path("message").path("content").asText("");
+            if (rawText.isBlank()) {
+                return new AiChatResponse("AI 没有返回可解析的内容，请重试。", List.of());
+            }
+            return parseModelContent(rawText);
+        } catch (Exception e) {
+            log.warn("AI response parse failed: {}", e.getMessage());
+            return new AiChatResponse("AI 返回格式不稳定，已安全忽略本次内容，请重试。", List.of());
+        }
+    }
+
+    private AiChatResponse parseModelContent(String content) {
+        try {
+            JsonNode parsed = objectMapper.readTree(extractJsonObject(content));
+            String message = trimToLimit(parsed.path("message").asText("已生成内容。"), MAX_MESSAGE_CHARS);
+            List<Map<String, Object>> ops = prepareOps(parsed.path("ops"));
+            return new AiChatResponse(message + safeSuffix(ops), ops);
+        } catch (Exception e) {
+            log.warn("AI response parse failed: {}", e.getMessage());
+            return new AiChatResponse("AI 返回格式不稳定，已安全忽略本次内容，请重试。", List.of());
         }
     }
 
     private List<Map<String, Object>> generateRegion(JsonNode region, String userGoal) {
         try {
-            int rx = region.path("x").asInt(200);
-            int ry = region.path("y").asInt(120);
-            int rw = region.path("width").asInt(900);
-            int rh = region.path("height").asInt(640);
-            String title = region.path("title").asText("区域");
-            String theme = region.path("theme").asText("");
+            int rx = clamp(region.path("x").asInt(200), -100_000, 100_000);
+            int ry = clamp(region.path("y").asInt(120), -100_000, 100_000);
+            int rw = clamp(region.path("width").asInt(900), 240, 2_000);
+            int rh = clamp(region.path("height").asInt(640), 180, 2_000);
+            String title = trimToLimit(region.path("title").asText("区域"), 120);
+            String theme = trimToLimit(region.path("theme").asText(""), 800);
 
             String sub = "用户整体目标：" + userGoal
                     + "\n\n你只负责生成【" + title + "】这一个区域的内容。"
@@ -343,7 +460,7 @@ public class AiService {
                     + "\n区域边界框：x ∈ [" + rx + ", " + (rx + rw) + "]，y ∈ [" + ry + ", " + (ry + rh) + "]。"
                     + "\n所有图形必须落在此边界框内，从 x=" + (rx + 24) + ", y=" + (ry + 56) + " 开始排布，互不重叠。"
                     + "\n在区域顶部用一个 text 标题标注【" + title + "】（y=" + ry + "）。";
-            JsonNode parsed = objectMapper.readTree(extractJsonObject(callModel(SYSTEM_PROMPT, sub)));
+            JsonNode parsed = objectMapper.readTree(extractJsonObject(callModel(SYSTEM_PROMPT, sub, 0.35)));
             return prepareOps(parsed.path("ops"));
         } catch (Exception e) {
             log.warn("Region generation failed: {}", e.getMessage());
@@ -352,36 +469,294 @@ public class AiService {
     }
 
     // ── Low-level model call (OpenAI-compatible, works for DeepSeek) ────────────
-    private String callModel(String systemPrompt, String userContent) throws Exception {
-        String requestBody = objectMapper.writeValueAsString(Map.of(
-                "model", model,
-                "max_tokens", 4096,
-                "temperature", 0.2,
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userContent)
-                )
+    private String callModel(String systemPrompt, String userContent, double temperature) throws Exception {
+        Map<String, Object> requestPayload = new LinkedHashMap<>();
+        requestPayload.put("model", model);
+        requestPayload.put("max_tokens", clamp(maxTokens, 256, 4096));
+        requestPayload.put("temperature", Math.max(0, Math.min(1, temperature)));
+        requestPayload.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userContent)
         ));
+
+        String requestBody = objectMapper.writeValueAsString(requestPayload);
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
-                .timeout(Duration.ofSeconds(75))
+                .timeout(requestTimeout())
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            log.warn("AI API error {}: {}", response.statusCode(), response.body());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log.warn("AI API error {}: {}", response.statusCode(), abbreviate(response.body(), MAX_ERROR_BODY_CHARS));
             throw new IllegalStateException("AI API status " + response.statusCode());
         }
         return objectMapper.readTree(response.body())
                 .path("choices").path(0).path("message").path("content").asText("");
     }
 
+    private List<Map<String, Object>> prepareOps(JsonNode opsNode) {
+        return remapOps(sanitizeOps(opsNode));
+    }
+
+    private List<Map<String, Object>> sanitizeOps(JsonNode opsNode) {
+        if (!opsNode.isArray() || opsNode.isEmpty()) {
+            return List.of();
+        }
+
+        List<Map<String, Object>> safeOps = new ArrayList<>();
+        for (JsonNode opNode : opsNode) {
+            if (safeOps.size() >= opLimit()) {
+                break;
+            }
+
+            Map<String, Object> op = sanitizeOp(opNode, safeOps.size());
+            if (!op.isEmpty()) {
+                safeOps.add(op);
+            }
+        }
+
+        return safeOps;
+    }
+
+    private Map<String, Object> sanitizeOp(JsonNode opNode, int index) {
+        if (!opNode.isObject()) {
+            return Map.of();
+        }
+
+        String opType = opNode.path("opType").asText("");
+        String shapeType = opNode.path("shapeType").asText("");
+        String shapeId = opNode.path("shapeId").asText("");
+        if (!ALLOWED_OP_TYPES.contains(opType) || !ALLOWED_SHAPE_TYPES.contains(shapeType)) {
+            return Map.of();
+        }
+        if (shapeId.isBlank()) {
+            if (!"create".equals(opType)) {
+                return Map.of();
+            }
+            shapeId = "ai-create-" + (index + 1);
+        }
+
+        Map<String, Object> op = new LinkedHashMap<>();
+        op.put("opType", opType);
+        op.put("shapeId", trimToLimit(shapeId, 120));
+        op.put("shapeType", shapeType);
+
+        if (!"delete".equals(opType)) {
+            Map<String, Object> attrs = sanitizeAttrs(opNode.path("attrs"), shapeType, index, "create".equals(opType));
+            if (!"create".equals(opType) && attrs.isEmpty()) {
+                return Map.of();
+            }
+            op.put("attrs", attrs);
+        }
+        return op;
+    }
+
+    private Map<String, Object> sanitizeAttrs(JsonNode attrsNode, String shapeType, int index, boolean applyDefaults) {
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        if (attrsNode.isObject()) {
+            attrsNode.fields().forEachRemaining(entry -> {
+                String key = entry.getKey();
+                JsonNode value = entry.getValue();
+                if (STRING_ATTRS.contains(key) && value.isTextual()) {
+                    attrs.put(key, trimToLimit(value.asText(), textLimit(key)));
+                } else if (NUMBER_ATTRS.contains(key) && value.isNumber()) {
+                    attrs.put(key, clampNumber(key, value.asDouble()));
+                } else if (BOOLEAN_ATTRS.contains(key) && value.isBoolean()) {
+                    attrs.put(key, value.asBoolean());
+                } else if (("tags".equals(key) || "voters".equals(key)) && value.isArray()) {
+                    attrs.put(key, sanitizeStringArray(value));
+                } else if ("priority".equals(key) && value.isTextual()) {
+                    attrs.put(key, sanitizeEnum(value.asText(), Set.of("low", "medium", "high", "urgent"), "medium"));
+                } else if ("status".equals(key) && value.isTextual()) {
+                    attrs.put(key, sanitizeEnum(value.asText(), Set.of("idea", "todo", "doing", "done", "blocked"), "idea"));
+                } else if (("fromAnchor".equals(key) || "toAnchor".equals(key)) && value.isTextual()) {
+                    attrs.put(key, sanitizeEnum(value.asText(), ANCHORS, "center"));
+                } else if (("fromShapeId".equals(key) || "toShapeId".equals(key)) && "connector".equals(shapeType) && value.isTextual()) {
+                    attrs.put(key, trimToLimit(value.asText(), 120));
+                } else if ("points".equals(key) && "pen".equals(shapeType) && value.isArray()) {
+                    attrs.put(key, sanitizePointArray(value));
+                }
+            });
+        }
+
+        if (applyDefaults) {
+            attrs.putIfAbsent("x", 220 + index * 36);
+            attrs.putIfAbsent("y", 180 + index * 36);
+            applyShapeDefaults(attrs, shapeType);
+        }
+        return attrs;
+    }
+
+    private void applyShapeDefaults(Map<String, Object> attrs, String shapeType) {
+        if ("card".equals(shapeType)) {
+            attrs.putIfAbsent("w", 260);
+            attrs.putIfAbsent("h", 180);
+            attrs.putIfAbsent("title", "AI 生成卡片");
+            attrs.putIfAbsent("body", "补充更多细节后即可用于讨论。");
+            attrs.putIfAbsent("tags", List.of("AI"));
+            attrs.putIfAbsent("priority", "medium");
+            attrs.putIfAbsent("status", "idea");
+            attrs.putIfAbsent("fill", "#dcfce7");
+            attrs.putIfAbsent("stroke", "#15803d");
+            attrs.putIfAbsent("textColor", "#111827");
+            attrs.putIfAbsent("fontSize", 16);
+            attrs.putIfAbsent("cornerRadius", 8);
+            attrs.putIfAbsent("strokeWidth", 2);
+        } else if ("sticky".equals(shapeType)) {
+            attrs.putIfAbsent("w", 190);
+            attrs.putIfAbsent("h", 170);
+            attrs.putIfAbsent("text", "AI idea");
+            attrs.putIfAbsent("fill", "#ffd966");
+            attrs.putIfAbsent("stroke", "transparent");
+            attrs.putIfAbsent("textColor", "#202124");
+            attrs.putIfAbsent("fontSize", 22);
+            attrs.putIfAbsent("cornerRadius", 10);
+            attrs.putIfAbsent("strokeWidth", 0);
+        } else if ("text".equals(shapeType)) {
+            attrs.putIfAbsent("w", 740);
+            attrs.putIfAbsent("h", 48);
+            attrs.putIfAbsent("text", "AI 生成内容");
+            attrs.putIfAbsent("fill", "transparent");
+            attrs.putIfAbsent("stroke", "transparent");
+            attrs.putIfAbsent("strokeWidth", 0);
+            attrs.putIfAbsent("textColor", "#0f172a");
+            attrs.putIfAbsent("fontSize", 28);
+            attrs.putIfAbsent("fontStyle", "bold");
+        } else if ("frame".equals(shapeType)) {
+            attrs.putIfAbsent("w", 280);
+            attrs.putIfAbsent("h", 460);
+            attrs.putIfAbsent("text", "AI 分组");
+            attrs.putIfAbsent("fill", "rgba(255,255,255,0.02)");
+            attrs.putIfAbsent("stroke", "#64748b");
+            attrs.putIfAbsent("strokeWidth", 2);
+            attrs.putIfAbsent("textColor", "#334155");
+            attrs.putIfAbsent("fontSize", 20);
+            attrs.putIfAbsent("zIndex", -10);
+        } else if ("connector".equals(shapeType)) {
+            attrs.putIfAbsent("fill", "transparent");
+            attrs.putIfAbsent("stroke", "#475569");
+            attrs.putIfAbsent("strokeWidth", 2);
+            attrs.putIfAbsent("arrowEnd", true);
+            attrs.putIfAbsent("fromAnchor", "right");
+            attrs.putIfAbsent("toAnchor", "left");
+            attrs.putIfAbsent("zIndex", -2);
+        } else if ("circle".equals(shapeType)) {
+            attrs.putIfAbsent("radius", 50);
+            attrs.putIfAbsent("fill", "#dcfce7");
+            attrs.putIfAbsent("stroke", "#16a34a");
+            attrs.putIfAbsent("strokeWidth", 2);
+            attrs.putIfAbsent("textColor", "#14532d");
+            attrs.putIfAbsent("fontSize", 14);
+        } else if ("diamond".equals(shapeType) || "triangle".equals(shapeType)) {
+            attrs.putIfAbsent("w", 160);
+            attrs.putIfAbsent("h", 120);
+            attrs.putIfAbsent("fill", "#fef9c3");
+            attrs.putIfAbsent("stroke", "#ca8a04");
+            attrs.putIfAbsent("strokeWidth", 2);
+            attrs.putIfAbsent("textColor", "#713f12");
+            attrs.putIfAbsent("fontSize", 15);
+        } else if ("comment".equals(shapeType)) {
+            attrs.putIfAbsent("w", 220);
+            attrs.putIfAbsent("h", 86);
+            attrs.putIfAbsent("text", "AI 批注");
+            attrs.putIfAbsent("fill", "#ffffff");
+            attrs.putIfAbsent("stroke", "#e5e7eb");
+            attrs.putIfAbsent("strokeWidth", 1);
+            attrs.putIfAbsent("textColor", "#111827");
+            attrs.putIfAbsent("fontSize", 14);
+            attrs.putIfAbsent("cornerRadius", 8);
+            attrs.putIfAbsent("resolved", false);
+        } else if ("pen".equals(shapeType)) {
+            attrs.putIfAbsent("points", List.of());
+            attrs.putIfAbsent("fill", "transparent");
+            attrs.putIfAbsent("stroke", "#111827");
+            attrs.putIfAbsent("strokeWidth", 3);
+        } else {
+            attrs.putIfAbsent("w", "roundedRect".equals(shapeType) ? 160 : 140);
+            attrs.putIfAbsent("h", "roundedRect".equals(shapeType) ? 90 : 80);
+            attrs.putIfAbsent("fill", "#dbeafe");
+            attrs.putIfAbsent("stroke", "#2563eb");
+            attrs.putIfAbsent("strokeWidth", 2);
+            attrs.putIfAbsent("textColor", "#1e3a8a");
+            attrs.putIfAbsent("fontSize", 16);
+            attrs.putIfAbsent("cornerRadius", "roundedRect".equals(shapeType) ? 18 : 0);
+        }
+    }
+
+    // Two-pass shapeId remap: only `create` ops get a fresh real ID; update/delete keep
+    // their shapeId (= an existing board shape). Connector references are rewritten too.
+    private List<Map<String, Object>> remapOps(List<Map<String, Object>> rawOps) {
+        if (rawOps.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> idMap = new LinkedHashMap<>();
+        for (Map<String, Object> op : rawOps) {
+            Object aiId = op.get("shapeId");
+            if ("create".equals(op.get("opType")) && aiId instanceof String sid) {
+                idMap.put(sid, "ai-" + UUID.randomUUID().toString().substring(0, 8));
+            }
+        }
+        return rawOps.stream().map(op -> {
+            Map<String, Object> copy = new LinkedHashMap<>(op);
+            Object sid = copy.get("shapeId");
+            if (sid instanceof String s && idMap.containsKey(s)) {
+                copy.put("shapeId", idMap.get(s));
+            }
+            Object attrsObj = copy.get("attrs");
+            if (attrsObj instanceof Map<?, ?> rawAttrs) {
+                Map<String, Object> attrs = new LinkedHashMap<>();
+                rawAttrs.forEach((k, v) -> attrs.put(String.valueOf(k), v));
+                for (String refKey : List.of("fromShapeId", "toShapeId")) {
+                    Object ref = attrs.get(refKey);
+                    if (ref instanceof String r && idMap.containsKey(r)) {
+                        attrs.put(refKey, idMap.get(r));
+                    }
+                }
+                copy.put("attrs", attrs);
+            }
+            return copy;
+        }).toList();
+    }
+
+    private PreparedRequest prepareRequest(AiChatRequest request) {
+        String prompt = trimToLimit(request == null ? "" : request.prompt(), maxPromptChars);
+        String boardContext = trimToLimit(request == null ? "" : request.boardContext(), maxContextChars);
+        return new PreparedRequest(prompt, boardContext);
+    }
+
+    private boolean isConfigured() {
+        return apiKey != null && !apiKey.isBlank();
+    }
+
+    private boolean allowRequest(String roomId) {
+        long now = System.currentTimeMillis();
+        long windowMs = Math.max(1_000L, rateLimitWindowMs);
+        int maxRequests = clamp(rateLimitMaxRequests, 1, 120);
+        String key = roomId == null || roomId.isBlank() ? "unknown" : roomId;
+        RateLimitBucket bucket = rateLimits.compute(key, (ignored, current) -> {
+            if (current == null || now - current.windowStartMs() >= windowMs) {
+                return new RateLimitBucket(now, 1);
+            }
+            return new RateLimitBucket(current.windowStartMs(), current.count() + 1);
+        });
+
+        pruneOldRateLimits(now, windowMs);
+        return bucket != null && bucket.count() <= maxRequests;
+    }
+
+    private void pruneOldRateLimits(long now, long windowMs) {
+        if (rateLimits.size() < 1_000) {
+            return;
+        }
+        rateLimits.entrySet().removeIf(entry -> now - entry.getValue().windowStartMs() > windowMs * 2);
+    }
+
     private String stripFences(String raw) {
-        String json = raw.strip();
+        String json = raw == null ? "" : raw.strip();
         if (json.startsWith("```")) {
-            json = json.replaceAll("(?s)^```[a-z]*\\s*", "").replaceAll("```\\s*$", "").strip();
+            json = json.replaceAll("(?s)^```[a-zA-Z]*\\s*", "").replaceAll("```\\s*$", "").strip();
         }
         return json;
     }
@@ -401,106 +776,114 @@ public class AiService {
         throw new IllegalArgumentException("AI response did not contain a JSON object");
     }
 
-    private List<Map<String, Object>> parseOps(JsonNode opsNode) {
-        if (!opsNode.isArray() || opsNode.isEmpty()) {
-            return List.of();
-        }
-        return objectMapper.convertValue(
-                opsNode,
-                objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class)
-        );
-    }
-
-    private List<Map<String, Object>> prepareOps(JsonNode opsNode) {
-        return remapOps(sanitizeOps(parseOps(opsNode)));
-    }
-
-    private List<Map<String, Object>> sanitizeOps(List<Map<String, Object>> rawOps) {
-        if (rawOps.isEmpty()) {
-            return List.of();
-        }
-
-        List<Map<String, Object>> safeOps = new ArrayList<>();
-        for (Map<String, Object> op : rawOps) {
-            if (safeOps.size() >= MAX_AI_OPS) {
+    private List<String> sanitizeStringArray(JsonNode value) {
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (result.size() >= 8) {
                 break;
             }
-
-            String opType = stringValue(op.get("opType"));
-            String shapeType = stringValue(op.get("shapeType"));
-            String shapeId = stringValue(op.get("shapeId"));
-
-            if (!ALLOWED_OP_TYPES.contains(opType) || !ALLOWED_SHAPE_TYPES.contains(shapeType)) {
-                continue;
-            }
-            if (shapeId.isBlank()) {
-                if (!"create".equals(opType)) {
-                    continue;
+            if (item.isTextual()) {
+                String text = trimToLimit(item.asText(), 40);
+                if (!text.isBlank()) {
+                    result.add(text);
                 }
-                shapeId = "ai-create-" + (safeOps.size() + 1);
-            }
-
-            Map<String, Object> copy = new LinkedHashMap<>();
-            copy.put("opType", opType);
-            copy.put("shapeId", shapeId);
-            copy.put("shapeType", shapeType);
-
-            if (!"delete".equals(opType)) {
-                Object attrsObj = op.get("attrs");
-                Map<String, Object> attrs = new LinkedHashMap<>();
-                if (attrsObj instanceof Map<?, ?> rawAttrs) {
-                    rawAttrs.forEach((key, value) -> {
-                        if (key != null) {
-                            attrs.put(String.valueOf(key), value);
-                        }
-                    });
-                }
-                copy.put("attrs", attrs);
-            }
-
-            safeOps.add(copy);
-        }
-
-        return safeOps;
-    }
-
-    private String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value).strip();
-    }
-
-    // Two-pass shapeId remap: only `create` ops get a fresh real ID; update/delete keep
-    // their shapeId (= an existing board shape). Connector references are rewritten too.
-    private List<Map<String, Object>> remapOps(List<Map<String, Object>> rawOps) {
-        if (rawOps.isEmpty()) {
-            return List.of();
-        }
-        Map<String, String> idMap = new java.util.HashMap<>();
-        for (Map<String, Object> op : rawOps) {
-            String opType = String.valueOf(op.get("opType"));
-            Object aiId = op.get("shapeId");
-            if ("create".equals(opType) && aiId instanceof String sid) {
-                idMap.put(sid, "ai-" + UUID.randomUUID().toString().substring(0, 8));
             }
         }
-        return rawOps.stream().map(op -> {
-            Map<String, Object> copy = new java.util.LinkedHashMap<>(op);
-            Object sid = copy.get("shapeId");
-            if (sid instanceof String s && idMap.containsKey(s)) {
-                copy.put("shapeId", idMap.get(s));
-            }
-            Object attrsObj = copy.get("attrs");
-            if (attrsObj instanceof Map<?, ?> rawAttrs) {
-                Map<String, Object> attrs = new java.util.LinkedHashMap<>();
-                rawAttrs.forEach((k, v) -> attrs.put(String.valueOf(k), v));
-                for (String refKey : List.of("fromShapeId", "toShapeId")) {
-                    Object ref = attrs.get(refKey);
-                    if (ref instanceof String r && idMap.containsKey(r)) {
-                        attrs.put(refKey, idMap.get(r));
-                    }
-                }
-                copy.put("attrs", attrs);
-            }
-            return copy;
-        }).toList();
+        return result;
     }
+
+    private List<Long> sanitizePointArray(JsonNode value) {
+        List<Long> result = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (result.size() >= 256) {
+                break;
+            }
+            if (item.isNumber()) {
+                result.add(Math.round(Math.max(-100_000, Math.min(100_000, item.asDouble()))));
+            }
+        }
+        return result;
+    }
+
+    private String sanitizeEnum(String value, Set<String> allowed, String fallback) {
+        String cleaned = value == null ? "" : value.trim().toLowerCase();
+        return allowed.contains(cleaned) ? cleaned : fallback;
+    }
+
+    private Object clampNumber(String key, double value) {
+        if ("x".equals(key) || "y".equals(key)) {
+            return Math.round(Math.max(-100_000, Math.min(100_000, value)));
+        }
+        if ("w".equals(key) || "h".equals(key)) {
+            return Math.round(Math.max(20, Math.min(2_000, value)));
+        }
+        if ("fontSize".equals(key)) {
+            return Math.round(Math.max(8, Math.min(72, value)));
+        }
+        if ("strokeWidth".equals(key)) {
+            return Math.round(Math.max(0, Math.min(24, value)));
+        }
+        if ("cornerRadius".equals(key) || "radius".equals(key)) {
+            return Math.round(Math.max(0, Math.min(300, value)));
+        }
+        if ("zIndex".equals(key)) {
+            return Math.round(Math.max(-1_000, Math.min(1_000, value)));
+        }
+        if ("votes".equals(key)) {
+            return Math.round(Math.max(0, Math.min(999, value)));
+        }
+        return value;
+    }
+
+    private Duration requestTimeout() {
+        return Duration.ofMillis(Math.max(2_000L, Math.min(timeoutMs, 120_000L)));
+    }
+
+    private int opLimit() {
+        return clamp(maxOps, 1, MAX_AI_OPS);
+    }
+
+    private int textLimit(String key) {
+        if ("body".equals(key)) {
+            return 1_200;
+        }
+        if ("fill".equals(key) || "stroke".equals(key) || "textColor".equals(key) || "fontStyle".equals(key)) {
+            return 80;
+        }
+        if ("assignee".equals(key)) {
+            return 80;
+        }
+        return 500;
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private String trimToLimit(String value, int limit) {
+        if (value == null) {
+            return "";
+        }
+        int safeLimit = Math.max(1, limit);
+        String trimmed = value.trim();
+        if (trimmed.length() <= safeLimit) {
+            return trimmed;
+        }
+        return trimmed.substring(0, safeLimit) + "\n...（内容已裁剪）";
+    }
+
+    private String abbreviate(String value, int limit) {
+        if (value == null || value.length() <= limit) {
+            return value;
+        }
+        return value.substring(0, limit) + "...";
+    }
+
+    private String safeSuffix(List<Map<String, Object>> ops) {
+        return ops.isEmpty() ? "" : "（已安全校验 " + ops.size() + " 个图形操作）";
+    }
+
+    private record PreparedRequest(String prompt, String boardContext) {}
+
+    private record RateLimitBucket(long windowStartMs, int count) {}
 }

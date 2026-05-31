@@ -65,6 +65,8 @@ services:
       NODE_PUBLIC_WS_PATH: /ws/backend1/collab
       NODE_ID: backend1
       AI_API_KEY: ${AI_API_KEY:-sk-b541487df6aa4b02aecab78d1d955ce5}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
+      AI_RATE_LIMIT_MAX_REQUESTS: ${AI_RATE_LIMIT_MAX_REQUESTS:-8}
     # 宿主机上不要映射后端端口，统一由 Nginx 的 80 端口转发进入。
 
   backend2:
@@ -93,6 +95,8 @@ services:
       NODE_PUBLIC_WS_PATH: /ws/backend2/collab
       NODE_ID: backend2
       AI_API_KEY: ${AI_API_KEY:-sk-b541487df6aa4b02aecab78d1d955ce5}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
+      AI_RATE_LIMIT_MAX_REQUESTS: ${AI_RATE_LIMIT_MAX_REQUESTS:-8}
 
   # ==========================================
   # 基础设施

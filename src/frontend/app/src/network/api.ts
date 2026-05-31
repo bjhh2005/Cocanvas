@@ -190,16 +190,26 @@ export type AiSummaryResponse = {
   markdown: string;
 };
 
+const withTimeout = async (request: RequestInfo | URL, init: RequestInit, timeoutMs: number) => {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(request, { ...init, signal: controller.signal });
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+};
+
 export const chatWithAi = async (
   roomId: string,
   prompt: string,
   boardContext: string,
 ): Promise<AiChatResponse> => {
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/chat`, {
+  const response = await withTimeout(`/api/rooms/${encodeURIComponent(roomId)}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, boardContext }),
-  });
+  }, 30_000);
   if (!response.ok) throw new Error('AI request failed');
   return response.json();
 };
@@ -209,11 +219,11 @@ export const orchestrateWithAi = async (
   prompt: string,
   boardContext: string,
 ): Promise<AiChatResponse> => {
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/orchestrate`, {
+  const response = await withTimeout(`/api/rooms/${encodeURIComponent(roomId)}/ai/orchestrate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, boardContext }),
-  });
+  }, 30_000);
   if (!response.ok) throw new Error('AI orchestration request failed');
   return response.json();
 };
@@ -223,11 +233,11 @@ export const summarizeWithAi = async (
   prompt: string,
   boardContext: string,
 ): Promise<AiSummaryResponse> => {
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/summarize`, {
+  const response = await withTimeout(`/api/rooms/${encodeURIComponent(roomId)}/ai/summarize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, boardContext }),
-  });
+  }, 30_000);
   if (!response.ok) throw new Error('AI summary request failed');
   return response.json();
 };

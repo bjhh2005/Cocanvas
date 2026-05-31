@@ -88,18 +88,6 @@ const isDraggableCreateTool = (tool: string): tool is Extract<ShapeType, ToolMod
   draggableCreateTools.has(tool as ToolMode)
 );
 
-const isAiShapeOperation = (op: Record<string, unknown>): op is ShapeOperation => (
-  (op.opType === 'create' || op.opType === 'update' || op.opType === 'delete') &&
-  typeof op.shapeId === 'string' &&
-  op.shapeId.trim().length > 0 &&
-  typeof op.shapeType === 'string' &&
-  aiShapeTypes.has(op.shapeType as ShapeType) &&
-  (
-    op.attrs === undefined ||
-    (op.attrs !== null && typeof op.attrs === 'object' && !Array.isArray(op.attrs))
-  )
-);
-
 type HistoryEntry = {
   undo: ShapeOperation[];
   redo: ShapeOperation[];
@@ -173,6 +161,245 @@ const parseSnapshotPayload = (payload: string) => {
   }
 
   return {};
+};
+
+const aiPriorities = new Set(['low', 'medium', 'high', 'urgent']);
+const aiStatuses = new Set(['idea', 'todo', 'doing', 'done', 'blocked']);
+const aiAnchors = new Set(['top', 'right', 'bottom', 'left', 'center']);
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+const safeText = (value: unknown, maxLength = 500) => (
+  typeof value === 'string' ? value.trim().slice(0, maxLength) : undefined
+);
+
+const safeNumber = (value: unknown, min: number, max: number) => (
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(Math.max(min, Math.min(max, value)))
+    : undefined
+);
+
+const safeStringArray = (value: unknown) => (
+  Array.isArray(value)
+    ? value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim().slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 8)
+    : undefined
+);
+
+const safeNumberArray = (value: unknown) => (
+  Array.isArray(value)
+    ? value
+      .filter((item): item is number => typeof item === 'number' && Number.isFinite(item))
+      .map((item) => Math.round(Math.max(-100_000, Math.min(100_000, item))))
+      .slice(0, 256)
+    : undefined
+);
+
+const safeShapeRef = (value: unknown) => {
+  const text = safeText(value, 120);
+  return text && text.length > 0 ? text : undefined;
+};
+
+const withAiDefaults = (attrs: ShapeAttrs, shapeType: ShapeType, index: number): ShapeAttrs => {
+  attrs.x ??= 220 + index * 36;
+  attrs.y ??= 180 + index * 36;
+
+  if (shapeType === 'card') {
+    attrs.w ??= 260;
+    attrs.h ??= 180;
+    attrs.title ??= 'AI 生成卡片';
+    attrs.body ??= '补充更多细节后即可用于讨论。';
+    attrs.tags ??= ['AI'];
+    attrs.priority ??= 'medium';
+    attrs.status ??= 'idea';
+    attrs.fill ??= '#dcfce7';
+    attrs.stroke ??= '#15803d';
+    attrs.textColor ??= '#111827';
+    attrs.fontSize ??= 16;
+    attrs.cornerRadius ??= 8;
+    attrs.strokeWidth ??= 2;
+  } else if (shapeType === 'sticky') {
+    attrs.w ??= 190;
+    attrs.h ??= 170;
+    attrs.text ??= 'AI idea';
+    attrs.fill ??= '#ffd966';
+    attrs.stroke ??= 'transparent';
+    attrs.textColor ??= '#202124';
+    attrs.fontSize ??= 22;
+    attrs.cornerRadius ??= 10;
+    attrs.strokeWidth ??= 0;
+  } else if (shapeType === 'text') {
+    attrs.w ??= 740;
+    attrs.h ??= 48;
+    attrs.text ??= 'AI 生成内容';
+    attrs.fill ??= 'transparent';
+    attrs.stroke ??= 'transparent';
+    attrs.strokeWidth ??= 0;
+    attrs.textColor ??= '#0f172a';
+    attrs.fontSize ??= 28;
+    attrs.fontStyle ??= 'bold';
+  } else if (shapeType === 'frame') {
+    attrs.w ??= 280;
+    attrs.h ??= 460;
+    attrs.text ??= 'AI 分组';
+    attrs.fill ??= 'rgba(255,255,255,0.02)';
+    attrs.stroke ??= '#64748b';
+    attrs.strokeWidth ??= 2;
+    attrs.textColor ??= '#334155';
+    attrs.fontSize ??= 20;
+    attrs.zIndex ??= -10;
+  } else if (shapeType === 'connector') {
+    attrs.fill ??= 'transparent';
+    attrs.stroke ??= '#475569';
+    attrs.strokeWidth ??= 2;
+    attrs.arrowEnd ??= true;
+    attrs.fromAnchor ??= 'right';
+    attrs.toAnchor ??= 'left';
+    attrs.zIndex ??= -2;
+  } else if (shapeType === 'circle') {
+    attrs.radius ??= 50;
+    attrs.fill ??= '#dcfce7';
+    attrs.stroke ??= '#16a34a';
+    attrs.strokeWidth ??= 2;
+    attrs.textColor ??= '#14532d';
+    attrs.fontSize ??= 14;
+  } else if (shapeType === 'diamond' || shapeType === 'triangle') {
+    attrs.w ??= 160;
+    attrs.h ??= 120;
+    attrs.fill ??= '#fef9c3';
+    attrs.stroke ??= '#ca8a04';
+    attrs.strokeWidth ??= 2;
+    attrs.textColor ??= '#713f12';
+    attrs.fontSize ??= 15;
+  } else if (shapeType === 'comment') {
+    attrs.w ??= 220;
+    attrs.h ??= 86;
+    attrs.text ??= 'AI 批注';
+    attrs.fill ??= '#ffffff';
+    attrs.stroke ??= '#e5e7eb';
+    attrs.strokeWidth ??= 1;
+    attrs.textColor ??= '#111827';
+    attrs.fontSize ??= 14;
+    attrs.cornerRadius ??= 8;
+    attrs.resolved ??= false;
+  } else if (shapeType === 'pen') {
+    attrs.points ??= [];
+    attrs.fill ??= 'transparent';
+    attrs.stroke ??= '#111827';
+    attrs.strokeWidth ??= 3;
+  } else {
+    attrs.w ??= shapeType === 'roundedRect' ? 160 : 140;
+    attrs.h ??= shapeType === 'roundedRect' ? 90 : 80;
+    attrs.fill ??= '#dbeafe';
+    attrs.stroke ??= '#2563eb';
+    attrs.strokeWidth ??= 2;
+    attrs.textColor ??= '#1e3a8a';
+    attrs.fontSize ??= 16;
+    attrs.cornerRadius ??= shapeType === 'roundedRect' ? 18 : 0;
+  }
+
+  return attrs;
+};
+
+const sanitizeAiAttrs = (
+  rawAttrs: unknown,
+  shapeType: ShapeType,
+  index: number,
+  applyDefaults: boolean
+): ShapeAttrs => {
+  const source = isRecord(rawAttrs) ? rawAttrs : {};
+
+  const attrs: ShapeAttrs = {};
+  const x = safeNumber(source.x, -100_000, 100_000);
+  const y = safeNumber(source.y, -100_000, 100_000);
+  attrs.x = x;
+  attrs.y = y;
+  attrs.w = safeNumber(source.w, 20, 2_000);
+  attrs.h = safeNumber(source.h, 20, 2_000);
+  attrs.radius = safeNumber(source.radius, 0, 300);
+  attrs.strokeWidth = safeNumber(source.strokeWidth, 0, 24);
+  attrs.fontSize = safeNumber(source.fontSize, 8, 72);
+  attrs.cornerRadius = safeNumber(source.cornerRadius, 0, 300);
+  attrs.zIndex = safeNumber(source.zIndex, -1_000, 1_000);
+  attrs.votes = safeNumber(source.votes, 0, 999);
+  attrs.fill = safeText(source.fill, 80);
+  attrs.stroke = safeText(source.stroke, 80);
+  attrs.text = safeText(source.text);
+  attrs.textColor = safeText(source.textColor, 80);
+  attrs.fontStyle = safeText(source.fontStyle, 40);
+  attrs.title = safeText(source.title);
+  attrs.body = safeText(source.body, 1200);
+  attrs.assignee = safeText(source.assignee, 80);
+  attrs.tags = safeStringArray(source.tags);
+  attrs.voters = safeStringArray(source.voters);
+  attrs.points = shapeType === 'pen' ? safeNumberArray(source.points) : undefined;
+  attrs.fromShapeId = shapeType === 'connector' ? safeShapeRef(source.fromShapeId) : undefined;
+  attrs.toShapeId = shapeType === 'connector' ? safeShapeRef(source.toShapeId) : undefined;
+  attrs.fromAnchor = typeof source.fromAnchor === 'string' && aiAnchors.has(source.fromAnchor)
+    ? source.fromAnchor as ShapeAttrs['fromAnchor']
+    : undefined;
+  attrs.toAnchor = typeof source.toAnchor === 'string' && aiAnchors.has(source.toAnchor)
+    ? source.toAnchor as ShapeAttrs['toAnchor']
+    : undefined;
+  attrs.priority = typeof source.priority === 'string' && aiPriorities.has(source.priority)
+    ? source.priority as ShapeAttrs['priority']
+    : undefined;
+  attrs.status = typeof source.status === 'string' && aiStatuses.has(source.status)
+    ? source.status as ShapeAttrs['status']
+    : undefined;
+  attrs.resolved = typeof source.resolved === 'boolean' ? source.resolved : undefined;
+  attrs.arrowEnd = typeof source.arrowEnd === 'boolean' ? source.arrowEnd : undefined;
+
+  const cleaned = Object.fromEntries(
+    Object.entries(attrs).filter(([, value]) => value !== undefined)
+  ) as ShapeAttrs;
+
+  return applyDefaults ? withAiDefaults(cleaned, shapeType, index) : cleaned;
+};
+
+const sanitizeAiOp = (raw: unknown, index: number): ShapeOperation | null => {
+  if (!isRecord(raw) || typeof raw.shapeType !== 'string') {
+    return null;
+  }
+
+  if (raw.opType !== 'create' && raw.opType !== 'update' && raw.opType !== 'delete') {
+    return null;
+  }
+
+  if (!aiShapeTypes.has(raw.shapeType as ShapeType)) {
+    return null;
+  }
+
+  const shapeType = raw.shapeType as ShapeType;
+  const shapeId = safeShapeRef(raw.shapeId) ?? (raw.opType === 'create' ? `ai-${msgId()}` : undefined);
+  if (!shapeId) {
+    return null;
+  }
+
+  if (raw.opType === 'delete') {
+    return {
+      opType: 'delete',
+      shapeId,
+      shapeType,
+    };
+  }
+
+  const attrs = sanitizeAiAttrs(raw.attrs, shapeType, index, raw.opType === 'create');
+  if (raw.opType === 'update' && Object.keys(attrs).length === 0) {
+    return null;
+  }
+
+  return {
+    opType: raw.opType,
+    shapeId,
+    shapeType,
+    attrs,
+  };
 };
 
 const shapeBounds = () => {
@@ -1113,7 +1340,7 @@ export function Room() {
       setClient(null);
       setRoomId(null);
     };
-  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, queueRemoteCursor, queueRemoteShapePreview, removePeer, replayBufferedOps, resetRemoteTransientBuffers, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, userId]);
+  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, joinToken, queueRemoteCursor, queueRemoteShapePreview, removePeer, replayBufferedOps, resetRemoteTransientBuffers, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, userId]);
 
   useEffect(() => {
     if (roomAccessState !== 'ready') {
@@ -1577,22 +1804,22 @@ export function Room() {
   }, [phases, activePhaseId, allShapes, chatMessages]);
 
   const handleAiOps = useCallback((ops: Array<Record<string, unknown>>) => {
-    const validOps = ops.filter(isAiShapeOperation);
-    const skipped = ops.length - validOps.length;
+    const safeOps = ops
+      .map((op, index) => sanitizeAiOp(op, index))
+      .filter((op): op is ShapeOperation => op !== null);
+    const skipped = ops.length - safeOps.length;
 
-    if (validOps.length === 0) {
-      if (skipped > 0) {
-        setEvents((current) => [`AI skipped ${skipped} invalid op(s)`, ...current].slice(0, 5));
-      }
+    if (ops.length > 0 && safeOps.length === 0) {
+      setEvents((current) => ['AI returned no safe canvas operations', ...current].slice(0, 5));
       return;
     }
 
     runHistoryBatch(() => {
-      validOps.forEach(sendShapeOp);
+      safeOps.forEach((op) => sendShapeOp(op));
     });
     window.requestAnimationFrame(fitViewportToContent);
     setEvents((current) => [
-      `AI applied ${validOps.length} op(s)${skipped ? `, skipped ${skipped}` : ''}`,
+      `AI applied ${safeOps.length} op(s)${skipped ? `, skipped ${skipped}` : ''}`,
       ...current,
     ].slice(0, 5));
   }, [fitViewportToContent, runHistoryBatch, sendShapeOp]);
