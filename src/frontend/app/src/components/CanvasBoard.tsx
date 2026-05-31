@@ -1661,6 +1661,16 @@ function ShapeNode({
     const priority = shape.attrs.priority ?? 'medium';
     const status = shape.attrs.status ?? 'idea';
     const votes = shape.attrs.votes ?? 0;
+    // Responsive layout so corner labels never overlap the center text on small cards.
+    const showBottomRow = height >= 96;            // tags (left) + priority (right) row
+    const bottomRowY = height - 26;
+    const showAssignee = Boolean(shape.attrs.assignee) && height >= 132;
+    const assigneeY = height - 48;
+    const bodyTop = 72;
+    const bodyBottomLimit = showAssignee ? assigneeY : (showBottomRow ? bottomRowY : height - 8);
+    const bodyHeight = Math.max(0, bodyBottomLimit - bodyTop - 4);
+    const showBody = bodyHeight >= 14;
+    const showTitle = height >= 58;
     return (
       <Group {...common}>
         <Rect
@@ -1702,33 +1712,38 @@ function ShapeNode({
           fontStyle="bold"
           fill="#0f172a"
         />
-        <Text
-          text={shape.attrs.title ?? 'New idea'}
-          x={14}
-          y={46}
-          width={width - 28}
-          height={28}
-          fontSize={18}
-          fontStyle="bold"
-          fill={shape.attrs.textColor ?? '#111827'}
-          ellipsis
-        />
-        <Text
-          text={shape.attrs.body ?? ''}
-          x={14}
-          y={78}
-          width={width - 28}
-          height={42}
-          fontSize={14}
-          fill="#334155"
-          lineHeight={1.2}
-          ellipsis
-        />
-        {shape.attrs.assignee && (
+        {showTitle && (
+          <Text
+            text={shape.attrs.title ?? 'New idea'}
+            x={14}
+            y={44}
+            width={width - 28}
+            height={24}
+            fontSize={18}
+            fontStyle="bold"
+            fill={shape.attrs.textColor ?? '#111827'}
+            ellipsis
+          />
+        )}
+        {showBody && (
+          <Text
+            text={shape.attrs.body ?? ''}
+            x={14}
+            y={bodyTop}
+            width={width - 28}
+            height={bodyHeight}
+            fontSize={14}
+            fill="#334155"
+            lineHeight={1.2}
+            ellipsis
+            wrap="word"
+          />
+        )}
+        {showAssignee && (
           <Text
             text={shape.attrs.assignee}
             x={14}
-            y={height - 56}
+            y={assigneeY}
             width={width - 28}
             height={16}
             fontSize={12}
@@ -1736,28 +1751,32 @@ function ShapeNode({
             ellipsis
           />
         )}
-        <Text
-          text={tags.slice(0, 3).map((tag) => `#${tag}`).join('  ')}
-          x={14}
-          y={height - 34}
-          width={width - 110}
-          height={18}
-          fontSize={12}
-          fontStyle="bold"
-          fill="#475569"
-          ellipsis
-        />
-        <Text
-          text={priorityLabels[priority]}
-          x={width - 92}
-          y={height - 35}
-          width={78}
-          height={18}
-          align="right"
-          fontSize={12}
-          fontStyle="bold"
-          fill="#0f172a"
-        />
+        {showBottomRow && (
+          <>
+            <Text
+              text={tags.slice(0, 3).map((tag) => `#${tag}`).join('  ')}
+              x={14}
+              y={bottomRowY}
+              width={width - 110}
+              height={18}
+              fontSize={12}
+              fontStyle="bold"
+              fill="#475569"
+              ellipsis
+            />
+            <Text
+              text={priorityLabels[priority]}
+              x={width - 92}
+              y={bottomRowY - 1}
+              width={78}
+              height={18}
+              align="right"
+              fontSize={12}
+              fontStyle="bold"
+              fill="#0f172a"
+            />
+          </>
+        )}
         {selectionOutline(width, height, 0, 0, shape.attrs.cornerRadius ?? 8)}
         {resizeHandle(width, height)}
         {anchorLayer}

@@ -12,3 +12,4 @@ src/backend/.env
 .run-*.log
 /others
 PROJECT.md
+/.cc-history

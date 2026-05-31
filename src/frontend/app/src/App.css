@@ -2640,15 +2640,13 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #145c4a;
+  font-weight: 700;
 }
 
 .meeting-bar__ai-tab.active {
-  border-bottom-color: #6366f1 !important;
-  -webkit-text-fill-color: #6366f1;
+  border-bottom-color: #145c4a !important;
+  color: #145c4a;
 }
 
 .meeting-bar__ai {
@@ -2669,10 +2667,10 @@ kbd {
   align-items: center;
   gap: 5px;
   padding: 6px 12px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid #b7e4d4;
   border-radius: 20px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: #ecfdf5;
+  color: #145c4a;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -2682,7 +2680,7 @@ kbd {
 }
 
 .meeting-bar__ai-quick-btn:hover:not(:disabled) {
-  background: #e0e7ff;
+  background: #d1fae5;
 }
 
 .meeting-bar__ai-quick-btn:disabled {
@@ -2692,12 +2690,12 @@ kbd {
 
 .meeting-bar__ai-summary-btn {
   border-color: #d1fae5;
-  background: #ecfdf5;
-  color: #059669;
+  background: #f0fdfa;
+  color: #0f766e;
 }
 
 .meeting-bar__ai-summary-btn:hover:not(:disabled) {
-  background: #d1fae5;
+  background: #ccfbf1;
 }
 
 .meeting-bar__ai-list {
@@ -2744,7 +2742,7 @@ kbd {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: #145c4a;
   color: white;
   flex-shrink: 0;
 }
@@ -2763,7 +2761,7 @@ kbd {
 }
 
 .meeting-bar__ai-msg--user .meeting-bar__ai-bubble {
-  background: #4f46e5;
+  background: #145c4a;
   color: white;
   border-bottom-right-radius: 4px;
 }
@@ -2838,7 +2836,7 @@ kbd {
 }
 
 .meeting-bar__ai-input:focus {
-  border-color: #6366f1;
+  border-color: #145c4a;
 }
 
 .meeting-bar__ai-input:disabled {
@@ -2853,7 +2851,7 @@ kbd {
   height: 36px;
   border: none;
   border-radius: 50%;
-  background: #4f46e5;
+  background: #145c4a;
   color: white;
   cursor: pointer;
   flex-shrink: 0;
@@ -2861,7 +2859,7 @@ kbd {
 }
 
 .meeting-bar__ai-send-btn:hover:not(:disabled) {
-  background: #4338ca;
+  background: #0f4639;
 }
 
 .meeting-bar__ai-send-btn:disabled {

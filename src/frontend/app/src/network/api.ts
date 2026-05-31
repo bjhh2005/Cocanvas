@@ -186,6 +186,10 @@ export type AiChatResponse = {
   ops: Array<Record<string, unknown>>;
 };
 
+export type AiSummaryResponse = {
+  markdown: string;
+};
+
 export const chatWithAi = async (
   roomId: string,
   prompt: string,
@@ -197,5 +201,33 @@ export const chatWithAi = async (
     body: JSON.stringify({ prompt, boardContext }),
   });
   if (!response.ok) throw new Error('AI request failed');
+  return response.json();
+};
+
+export const orchestrateWithAi = async (
+  roomId: string,
+  prompt: string,
+  boardContext: string,
+): Promise<AiChatResponse> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/orchestrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, boardContext }),
+  });
+  if (!response.ok) throw new Error('AI orchestration request failed');
+  return response.json();
+};
+
+export const summarizeWithAi = async (
+  roomId: string,
+  prompt: string,
+  boardContext: string,
+): Promise<AiSummaryResponse> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, boardContext }),
+  });
+  if (!response.ok) throw new Error('AI summary request failed');
   return response.json();
 };

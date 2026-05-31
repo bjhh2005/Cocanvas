@@ -67,8 +67,35 @@ const draggableCreateTools = new Set<ToolMode>([
   'comment',
 ]);
 
+const aiShapeTypes = new Set<ShapeType>([
+  'rect',
+  'roundedRect',
+  'circle',
+  'diamond',
+  'triangle',
+  'text',
+  'sticky',
+  'connector',
+  'pen',
+  'comment',
+  'frame',
+  'card',
+]);
+
 const isDraggableCreateTool = (tool: string): tool is Extract<ShapeType, ToolMode> => (
   draggableCreateTools.has(tool as ToolMode)
+);
+
+const isAiShapeOperation = (op: Record<string, unknown>): op is ShapeOperation => (
+  (op.opType === 'create' || op.opType === 'update' || op.opType === 'delete') &&
+  typeof op.shapeId === 'string' &&
+  op.shapeId.trim().length > 0 &&
+  typeof op.shapeType === 'string' &&
+  aiShapeTypes.has(op.shapeType as ShapeType) &&
+  (
+    op.attrs === undefined ||
+    (op.attrs !== null && typeof op.attrs === 'object' && !Array.isArray(op.attrs))
+  )
 );
 
 type HistoryEntry = {
@@ -173,7 +200,7 @@ const shapeBounds = () => {
 export function Room() {
   const { roomId = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [events, setEvents] = useState<string[]>([]);
+  const [, setEvents] = useState<string[]>([]);
   const [historyAt, setHistoryAt] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyPreview, setHistoryPreview] = useState<{ snapshotId: string; snapshotShapes: number; ops: number; at: number } | null>(null);
@@ -1372,46 +1399,84 @@ export function Room() {
     setActiveTool('select');
   };
 
-  // Build compact board context for AI (max 30 shapes to keep prompt small)
+  // Build compact board context for AI, including real shape IDs so the AI can
+  // target existing objects with update/delete instead of only creating new ones.
   const buildBoardContext = useCallback(() => {
     const activePhase = phases.find((p) => p.id === activePhaseId);
+    const contextShapes = [...allShapes]
+      .sort((a, b) => (a.attrs.y ?? 0) - (b.attrs.y ?? 0) || (a.attrs.x ?? 0) - (b.attrs.x ?? 0))
+      .slice(0, 80);
     const lines: string[] = [
       `当前会议阶段：${activePhase?.label ?? '未知'}（${activePhase?.hint ?? ''}）`,
       `阶段进度：${phases.findIndex((p) => p.id === activePhaseId) + 1} / ${phases.length}`,
       `白板图形总数：${allShapes.length}`,
       '',
-      '白板现有内容（最多30条）：',
+      '白板现有图形（id 可用于 update/delete 操作，格式 [类型] id @(x,y) 尺寸 文字/状态）：',
     ];
-    allShapes.slice(0, 30).forEach((shape) => {
+    contextShapes.forEach((shape) => {
       const r = shapeToExportRecord(shape);
-      const label = r.title || r.body || '（无文字）';
-      lines.push(`- [${shape.type}] ${label.slice(0, 60)}${r.status ? ` (${r.status})` : ''}${r.priority ? ` [${r.priority}]` : ''}`);
+      const label = r.title || r.body || shape.attrs.text || '（无文字）';
+      const x = Math.round(shape.attrs.x ?? 0);
+      const y = Math.round(shape.attrs.y ?? 0);
+      const size = shape.attrs.radius
+        ? `r=${Math.round(shape.attrs.radius)}`
+        : `${Math.round(shape.attrs.w ?? 0)}x${Math.round(shape.attrs.h ?? 0)}`;
+      const meta = [r.status, r.priority].filter(Boolean).join('/');
+      lines.push(`- [${shape.type}] ${shape.id} @(${x},${y}) ${size} "${String(label).slice(0, 50)}"${meta ? ` {${meta}}` : ''}`);
     });
+    if (allShapes.length > contextShapes.length) {
+      lines.push(`- 另有 ${allShapes.length - contextShapes.length} 个图形未展开，请优先基于已列出的对象进行精确修改。`);
+    }
+
+    if (chatMessages.length > 0) {
+      lines.push('', '最近会议对话（最多 30 条）：');
+      chatMessages.slice(-30).forEach((msg) => {
+        lines.push(`- ${msg.displayName}: ${msg.text.slice(0, 160)}`);
+      });
+    }
+
     // Compute bounding box to suggest AI start position
     if (allShapes.length > 0) {
       const maxX = Math.max(...allShapes.map((s) => (s.attrs.x ?? 0) + (s.attrs.w ?? 200)));
       const maxY = Math.max(...allShapes.map((s) => (s.attrs.y ?? 0) + (s.attrs.h ?? 100)));
-      lines.push('', `建议起始坐标：x = ${Math.round(maxX + 120)}, y = 100`);
+      lines.push('', `建议起始坐标：x = ${Math.round(maxX + 120)}, y = 100；若横向空间不足，可用 x = 200, y = ${Math.round(maxY + 120)}`);
     } else {
       lines.push('', '建议起始坐标：x = 200, y = 200');
     }
     return lines.join('\n');
-  }, [phases, activePhaseId, allShapes]);
+  }, [phases, activePhaseId, allShapes, chatMessages]);
 
   const handleAiOps = useCallback((ops: Array<Record<string, unknown>>) => {
-    ops.forEach((op) => sendShapeOp(op as ShapeOperation));
-  }, [sendShapeOp]);
+    const validOps = ops.filter(isAiShapeOperation);
+    const skipped = ops.length - validOps.length;
+
+    if (validOps.length === 0) {
+      if (skipped > 0) {
+        setEvents((current) => [`AI skipped ${skipped} invalid op(s)`, ...current].slice(0, 5));
+      }
+      return;
+    }
+
+    runHistoryBatch(() => {
+      validOps.forEach(sendShapeOp);
+    });
+    window.requestAnimationFrame(fitViewportToContent);
+    setEvents((current) => [
+      `AI applied ${validOps.length} op(s)${skipped ? `, skipped ${skipped}` : ''}`,
+      ...current,
+    ].slice(0, 5));
+  }, [fitViewportToContent, runHistoryBatch, sendShapeOp]);
 
   const handleAiChat = useCallback(async (prompt: string) => {
-    const { chatWithAi } = await import('../network/api');
+    const { orchestrateWithAi } = await import('../network/api');
     const boardContext = buildBoardContext();
-    const res = await chatWithAi(roomId, prompt, boardContext);
+    const res = await orchestrateWithAi(roomId, prompt, boardContext);
     if (res.ops && res.ops.length > 0) handleAiOps(res.ops);
     return res;
   }, [roomId, buildBoardContext, handleAiOps]);
 
   const handleAiSummarize = useCallback(async (): Promise<string> => {
-    const { chatWithAi } = await import('../network/api');
+    const { summarizeWithAi } = await import('../network/api');
     const boardContext = buildBoardContext();
     const prompt = `请根据本次会议的完整白板内容，生成一份会议总结。包含：
 1. 本次会议的核心目标和结论（2-3条）
@@ -1419,8 +1484,8 @@ export function Room() {
 3. 明确的行动项（含建议优先级）
 4. 整体进展评估（是否达到会议目标）
 请以结构化的方式呈现，便于会后同步。`;
-    const res = await chatWithAi(roomId, prompt, boardContext);
-    return res.message;
+    const res = await summarizeWithAi(roomId, prompt, boardContext);
+    return res.markdown;
   }, [roomId, buildBoardContext]);
 
   const handleProductUpdate = (attrs: ShapeOperation['attrs']) => {
@@ -2065,7 +2130,6 @@ export function Room() {
           activePhaseId={activePhaseId}
           activePhaseIndex={phases.findIndex((p) => p.id === activePhaseId)}
           userId={userId}
-          displayName={displayName}
           color={color}
           onPhaseChange={handlePhaseChange}
           onPhaseStep={handlePhaseStep}

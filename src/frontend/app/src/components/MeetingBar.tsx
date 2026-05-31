@@ -32,10 +32,9 @@ interface MeetingBarProps {
   activePhaseId: MeetingPhaseId;
   activePhaseIndex: number;
   userId: string;
-  displayName: string;
   color: string;
   onPhaseChange: (id: MeetingPhaseId) => void;
-  onPhaseStep: (direction: number) => void;
+  onPhaseStep: (direction: 1 | -1) => void;
   // History
   historyAt: number;
   historyLoading: boolean;
@@ -86,7 +85,6 @@ export function MeetingBar({
   activePhaseId,
   activePhaseIndex,
   userId,
-  displayName,
   color,
   onPhaseChange,
   onPhaseStep,
@@ -124,6 +122,7 @@ export function MeetingBar({
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const aiListRef = useRef<HTMLDivElement>(null);
+  const downloadUrlsRef = useRef<string[]>([]);
 
   const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
 
@@ -140,6 +139,11 @@ export function MeetingBar({
       aiListRef.current.scrollTop = aiListRef.current.scrollHeight;
     }
   }, [aiMessages]);
+
+  useEffect(() => () => {
+    downloadUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    downloadUrlsRef.current = [];
+  }, []);
 
   // Trigger float animation for remotely received emoji
   useEffect(() => {
@@ -229,6 +233,7 @@ export function MeetingBar({
       const summary = await onAiSummarize();
       const blob = new Blob([summary], { type: 'text/markdown;charset=utf-8' });
       const downloadUrl = URL.createObjectURL(blob);
+      downloadUrlsRef.current.push(downloadUrl);
       const fileName = `会议总结_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '')}.md`;
       setAiMessages((prev) =>
         prev.map((m) => m.id === loadingMsg.id
@@ -540,11 +545,11 @@ export function MeetingBar({
                 <button
                   type="button"
                   className="meeting-bar__ai-quick-btn"
-                  onClick={() => sendAiMessage(`当前会议阶段是"${phases.find(p => p.id === activePhaseId)?.label ?? '未知'}"，请根据阶段内容生成一组白板卡片，帮助团队推进讨论。`)}
+                  onClick={() => void sendAiMessage(`当前会议阶段是"${phases.find(p => p.id === activePhaseId)?.label ?? '未知'}"，请根据阶段内容生成一组白板卡片，帮助团队推进讨论。复杂内容请自动拆成多个区域。`)}
                   disabled={aiLoading}
                 >
                   <Sparkles size={13} aria-hidden />
-                  生成当前阶段内容
+                  智能生成当前阶段
                 </button>
                 <button
                   type="button"
