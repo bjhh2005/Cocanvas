@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, ChevronDown, ChevronUp, History, Mic, MicOff, Send, Smile } from 'lucide-react';
+import { AudioLines, Bot, ChevronDown, ChevronUp, FileText, History, Mic, MicOff, Send, Smile, Sparkles } from 'lucide-react';
 import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
 import type { HistoryAnchors } from '../network/api';
 
@@ -51,6 +51,9 @@ interface MeetingBarProps {
   micEnabled: boolean;
   micError: string | null;
   onToggleMic: () => void;
+  // AI
+  onAiChat: (prompt: string) => Promise<{ message: string; ops: Array<Record<string, unknown>> }>;
+  onAiSummarize: () => Promise<string>;
   // Synced state
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
@@ -64,6 +67,16 @@ const EMOJI_LIST = ['😄', '👍', '🔥', '❤️', '💡', '🎉', '😮', '�
 
 let _msgId = 0;
 const uid = () => `msg-${Date.now()}-${++_msgId}`;
+
+type AiMessage = {
+  id: string;
+  role: 'user' | 'ai';
+  text: string;
+  hasOps?: boolean;
+  loading?: boolean;
+  downloadUrl?: string;
+  fileName?: string;
+};
 
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -90,19 +103,27 @@ export function MeetingBar({
   micEnabled,
   micError,
   onToggleMic,
+  onAiChat,
+  onAiSummarize,
   chatMessages,
   onSendMessage,
   onSendEmoji,
   remoteEmoji,
 }: MeetingBarProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'flow' | 'chat' | 'history'>('flow');
+  const [tab, setTab] = useState<'flow' | 'chat' | 'history' | 'ai'>('flow');
   const [input, setInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+
+  // AI tab state
+  const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiListRef = useRef<HTMLDivElement>(null);
 
   const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
 
@@ -112,6 +133,13 @@ export function MeetingBar({
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [chatMessages]);
+
+  // Auto-scroll AI chat to bottom
+  useEffect(() => {
+    if (aiListRef.current) {
+      aiListRef.current.scrollTop = aiListRef.current.scrollHeight;
+    }
+  }, [aiMessages]);
 
   // Trigger float animation for remotely received emoji
   useEffect(() => {
@@ -164,6 +192,59 @@ export function MeetingBar({
     const d = new Date(ts);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
+
+  const sendAiMessage = useCallback(async (promptText: string) => {
+    const text = promptText.trim();
+    if (!text || aiLoading) return;
+    const userMsg: AiMessage = { id: uid(), role: 'user', text };
+    const loadingMsg: AiMessage = { id: uid(), role: 'ai', text: '正在思考…', loading: true };
+    setAiMessages((prev) => [...prev, userMsg, loadingMsg]);
+    setAiInput('');
+    setAiLoading(true);
+    try {
+      const res = await onAiChat(text);
+      const hasOps = res.ops && res.ops.length > 0;
+      setAiMessages((prev) =>
+        prev.map((m) => m.id === loadingMsg.id
+          ? { ...m, text: res.message, loading: false, hasOps }
+          : m)
+      );
+    } catch {
+      setAiMessages((prev) =>
+        prev.map((m) => m.id === loadingMsg.id
+          ? { ...m, text: '请求失败，请稍后重试。', loading: false }
+          : m)
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiLoading, onAiChat]);
+
+  const handleAiSummarize = useCallback(async () => {
+    if (aiLoading) return;
+    const loadingMsg: AiMessage = { id: uid(), role: 'ai', text: '正在生成会议总结…', loading: true };
+    setAiMessages((prev) => [...prev, loadingMsg]);
+    setAiLoading(true);
+    try {
+      const summary = await onAiSummarize();
+      const blob = new Blob([summary], { type: 'text/markdown;charset=utf-8' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const fileName = `会议总结_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '')}.md`;
+      setAiMessages((prev) =>
+        prev.map((m) => m.id === loadingMsg.id
+          ? { ...m, text: '会议总结已生成，点击下方链接下载 Markdown 文件。', loading: false, downloadUrl, fileName }
+          : m)
+      );
+    } catch {
+      setAiMessages((prev) =>
+        prev.map((m) => m.id === loadingMsg.id
+          ? { ...m, text: '总结生成失败，请稍后重试。', loading: false }
+          : m)
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiLoading, onAiSummarize]);
 
   return (
     <>
@@ -232,6 +313,16 @@ export function MeetingBar({
               onClick={() => setTab('history')}
             >
               历史回放
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'ai'}
+              className={`meeting-bar__ai-tab${tab === 'ai' ? ' active' : ''}`}
+              onClick={() => setTab('ai')}
+            >
+              <Bot size={13} aria-hidden />
+              AI 助手
             </button>
           </div>
 
@@ -441,6 +532,96 @@ export function MeetingBar({
               })()}
             </div>
           )}
+          {/* ── AI tab ── */}
+          {tab === 'ai' && (
+            <div className="meeting-bar__ai" role="tabpanel">
+              {/* Quick action buttons */}
+              <div className="meeting-bar__ai-actions">
+                <button
+                  type="button"
+                  className="meeting-bar__ai-quick-btn"
+                  onClick={() => sendAiMessage(`当前会议阶段是"${phases.find(p => p.id === activePhaseId)?.label ?? '未知'}"，请根据阶段内容生成一组白板卡片，帮助团队推进讨论。`)}
+                  disabled={aiLoading}
+                >
+                  <Sparkles size={13} aria-hidden />
+                  生成当前阶段内容
+                </button>
+                <button
+                  type="button"
+                  className="meeting-bar__ai-quick-btn meeting-bar__ai-summary-btn"
+                  onClick={handleAiSummarize}
+                  disabled={aiLoading}
+                >
+                  <FileText size={13} aria-hidden />
+                  生成会议总结
+                </button>
+              </div>
+
+              {/* Message list */}
+              <div className="meeting-bar__ai-list" ref={aiListRef}>
+                {aiMessages.length === 0 && (
+                  <div className="meeting-bar__ai-empty">
+                    <Bot size={28} aria-hidden />
+                    <p>你好！我是 AI 助手</p>
+                    <p>可以帮你生成白板内容或总结会议结论</p>
+                  </div>
+                )}
+                {aiMessages.map((msg) => (
+                  <div key={msg.id} className={`meeting-bar__ai-msg meeting-bar__ai-msg--${msg.role}`}>
+                    {msg.role === 'ai' && (
+                      <span className="meeting-bar__ai-avatar">
+                        <Bot size={14} />
+                      </span>
+                    )}
+                    <div className="meeting-bar__ai-bubble">
+                      {msg.loading
+                        ? <span className="meeting-bar__ai-loading">⋯</span>
+                        : <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
+                      }
+                      {msg.hasOps && !msg.loading && (
+                        <span className="meeting-bar__ai-ops-badge">
+                          <Sparkles size={11} aria-hidden /> 已生成到画布
+                        </span>
+                      )}
+                      {msg.downloadUrl && !msg.loading && (
+                        <a
+                          href={msg.downloadUrl}
+                          download={msg.fileName}
+                          className="meeting-bar__ai-download-link"
+                        >
+                          <FileText size={13} aria-hidden />
+                          {msg.fileName}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Input row */}
+              <div className="meeting-bar__ai-input-row">
+                <input
+                  className="meeting-bar__ai-input"
+                  type="text"
+                  placeholder="告诉 AI 要生成什么内容…"
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendAiMessage(aiInput); } }}
+                  disabled={aiLoading}
+                  maxLength={500}
+                />
+                <button
+                  type="button"
+                  className="meeting-bar__ai-send-btn"
+                  onClick={() => void sendAiMessage(aiInput)}
+                  disabled={!aiInput.trim() || aiLoading}
+                >
+                  <Send size={15} />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Voice control bar (always visible when voice enabled) ── */}
           {voiceEnabled && (
             <div className="meeting-bar__voice">

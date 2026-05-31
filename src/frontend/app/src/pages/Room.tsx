@@ -1372,6 +1372,57 @@ export function Room() {
     setActiveTool('select');
   };
 
+  // Build compact board context for AI (max 30 shapes to keep prompt small)
+  const buildBoardContext = useCallback(() => {
+    const activePhase = phases.find((p) => p.id === activePhaseId);
+    const lines: string[] = [
+      `当前会议阶段：${activePhase?.label ?? '未知'}（${activePhase?.hint ?? ''}）`,
+      `阶段进度：${phases.findIndex((p) => p.id === activePhaseId) + 1} / ${phases.length}`,
+      `白板图形总数：${allShapes.length}`,
+      '',
+      '白板现有内容（最多30条）：',
+    ];
+    allShapes.slice(0, 30).forEach((shape) => {
+      const r = shapeToExportRecord(shape);
+      const label = r.title || r.body || '（无文字）';
+      lines.push(`- [${shape.type}] ${label.slice(0, 60)}${r.status ? ` (${r.status})` : ''}${r.priority ? ` [${r.priority}]` : ''}`);
+    });
+    // Compute bounding box to suggest AI start position
+    if (allShapes.length > 0) {
+      const maxX = Math.max(...allShapes.map((s) => (s.attrs.x ?? 0) + (s.attrs.w ?? 200)));
+      const maxY = Math.max(...allShapes.map((s) => (s.attrs.y ?? 0) + (s.attrs.h ?? 100)));
+      lines.push('', `建议起始坐标：x = ${Math.round(maxX + 120)}, y = 100`);
+    } else {
+      lines.push('', '建议起始坐标：x = 200, y = 200');
+    }
+    return lines.join('\n');
+  }, [phases, activePhaseId, allShapes]);
+
+  const handleAiOps = useCallback((ops: Array<Record<string, unknown>>) => {
+    ops.forEach((op) => sendShapeOp(op as ShapeOperation));
+  }, [sendShapeOp]);
+
+  const handleAiChat = useCallback(async (prompt: string) => {
+    const { chatWithAi } = await import('../network/api');
+    const boardContext = buildBoardContext();
+    const res = await chatWithAi(roomId, prompt, boardContext);
+    if (res.ops && res.ops.length > 0) handleAiOps(res.ops);
+    return res;
+  }, [roomId, buildBoardContext, handleAiOps]);
+
+  const handleAiSummarize = useCallback(async (): Promise<string> => {
+    const { chatWithAi } = await import('../network/api');
+    const boardContext = buildBoardContext();
+    const prompt = `请根据本次会议的完整白板内容，生成一份会议总结。包含：
+1. 本次会议的核心目标和结论（2-3条）
+2. 讨论中识别到的主要风险或待决策项
+3. 明确的行动项（含建议优先级）
+4. 整体进展评估（是否达到会议目标）
+请以结构化的方式呈现，便于会后同步。`;
+    const res = await chatWithAi(roomId, prompt, boardContext);
+    return res.message;
+  }, [roomId, buildBoardContext]);
+
   const handleProductUpdate = (attrs: ShapeOperation['attrs']) => {
     if (!selectedShape) {
       return;
@@ -2031,6 +2082,8 @@ export function Room() {
           micEnabled={micEnabled}
           micError={micError}
           onToggleMic={() => void toggleMicrophone()}
+          onAiChat={handleAiChat}
+          onAiSummarize={handleAiSummarize}
           chatMessages={chatMessages}
           onSendMessage={handleSendChatMessage}
           onSendEmoji={handleSendEmoji}

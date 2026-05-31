@@ -180,3 +180,22 @@ export const fetchQueueStats = async (): Promise<QueueStatsResponse> => {
   if (!response.ok) throw new Error('Failed to fetch queue stats');
   return response.json();
 };
+
+export type AiChatResponse = {
+  message: string;
+  ops: Array<Record<string, unknown>>;
+};
+
+export const chatWithAi = async (
+  roomId: string,
+  prompt: string,
+  boardContext: string,
+): Promise<AiChatResponse> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, boardContext }),
+  });
+  if (!response.ok) throw new Error('AI request failed');
+  return response.json();
+};
