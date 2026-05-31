@@ -1,10 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// 通过 Nginx 对外暴露的端口（局域网设备访问时使用的端口），用于 HMR 回连
+const publicPort = Number(process.env.VITE_PUBLIC_PORT || 8088)
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
+    // 监听所有网卡，允许局域网设备访问
+    host: true,
+    // 允许任意 Host 头（局域网 IP、主机名等），否则 Vite 会返回 "Blocked request"
+    allowedHosts: true,
+    // HMR 热更新通过 Nginx 的对外端口回连，保证局域网设备也能正常连上 websocket
+    hmr: {
+      clientPort: publicPort,
+    },
     // 配置前端独立运行时的开发代理
     proxy: {
       '/api': {

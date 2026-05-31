@@ -22,4 +22,20 @@ public class AiController {
     ) {
         return aiService.chat(roomId, request);
     }
+
+    @PostMapping({"/api/rooms/{roomId}/ai/orchestrate", "/rooms/{roomId}/ai/orchestrate"})
+    public AiService.AiChatResponse orchestrate(
+            @PathVariable String roomId,
+            @RequestBody AiService.AiChatRequest request
+    ) {
+        return aiService.orchestrate(roomId, request);
+    }
+
+    @PostMapping({"/api/rooms/{roomId}/ai/summarize", "/rooms/{roomId}/ai/summarize"})
+    public AiService.AiSummaryResponse summarize(
+            @PathVariable String roomId,
+            @RequestBody AiService.AiChatRequest request
+    ) {
+        return aiService.summarize(roomId, request);
+    }
 }

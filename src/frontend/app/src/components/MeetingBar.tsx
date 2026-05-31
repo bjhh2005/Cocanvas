@@ -32,10 +32,9 @@ interface MeetingBarProps {
   activePhaseId: MeetingPhaseId;
   activePhaseIndex: number;
   userId: string;
-  displayName: string;
   color: string;
   onPhaseChange: (id: MeetingPhaseId) => void;
-  onPhaseStep: (direction: number) => void;
+  onPhaseStep: (direction: 1 | -1) => void;
   // History
   historyAt: number;
   historyLoading: boolean;
@@ -86,7 +85,6 @@ export function MeetingBar({
   activePhaseId,
   activePhaseIndex,
   userId,
-  displayName,
   color,
   onPhaseChange,
   onPhaseStep,
@@ -115,6 +113,8 @@ export function MeetingBar({
   const [input, setInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
+  const [historyNow, setHistoryNow] = useState(() => Date.now());
+  const emojiTimersRef = useRef<number[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -124,6 +124,7 @@ export function MeetingBar({
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const aiListRef = useRef<HTMLDivElement>(null);
+  const downloadUrlsRef = useRef<string[]>([]);
 
   const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
 
@@ -141,15 +142,42 @@ export function MeetingBar({
     }
   }, [aiMessages]);
 
+  useEffect(() => () => {
+    downloadUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    downloadUrlsRef.current = [];
+  }, []);
+
   // Trigger float animation for remotely received emoji
   useEffect(() => {
     if (!remoteEmoji) return;
     const x = 10 + Math.random() * 80;
     const { id, emoji } = remoteEmoji;
-    setFloatingEmojis((prev) => [...prev, { id, emoji, x }]);
-    const t = setTimeout(() => setFloatingEmojis((prev) => prev.filter((e) => e.id !== id)), 2400);
-    return () => clearTimeout(t);
+    const addTimer = window.setTimeout(() => {
+      setFloatingEmojis((prev) => [...prev, { id, emoji, x }]);
+      const removeTimer = window.setTimeout(() => {
+        setFloatingEmojis((prev) => prev.filter((e) => e.id !== id));
+        emojiTimersRef.current = emojiTimersRef.current.filter((timer) => timer !== removeTimer);
+      }, 2400);
+      emojiTimersRef.current.push(removeTimer);
+      emojiTimersRef.current = emojiTimersRef.current.filter((timer) => timer !== addTimer);
+    }, 0);
+    emojiTimersRef.current.push(addTimer);
   }, [remoteEmoji]);
+
+  useEffect(() => () => {
+    emojiTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    emojiTimersRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'history') return undefined;
+    const refreshTimer = window.setTimeout(() => setHistoryNow(Date.now()), 0);
+    const interval = window.setInterval(() => setHistoryNow(Date.now()), 30_000);
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.clearInterval(interval);
+    };
+  }, [tab]);
 
   // Report bar height to parent so sidebars can shrink accordingly
   useEffect(() => {
@@ -229,6 +257,7 @@ export function MeetingBar({
       const summary = await onAiSummarize();
       const blob = new Blob([summary], { type: 'text/markdown;charset=utf-8' });
       const downloadUrl = URL.createObjectURL(blob);
+      downloadUrlsRef.current.push(downloadUrl);
       const fileName = `会议总结_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '')}.md`;
       setAiMessages((prev) =>
         prev.map((m) => m.id === loadingMsg.id
@@ -445,12 +474,12 @@ export function MeetingBar({
             <div className="meeting-bar__history" role="tabpanel">
               {(() => {
                 const minTs = historyAnchors?.roomCreatedAt ?? (historyAt - 3_600_000);
-                const maxTs = historyAnchors?.latestOpAt ?? Date.now();
+                const maxTs = historyAnchors?.latestOpAt ?? historyNow;
                 const range = Math.max(maxTs - minTs, 1);
                 const pct = (ts: number) => `${((ts - minTs) / range * 100).toFixed(2)}%`;
 
                 const formatRelative = (ts: number) => {
-                  const diff = Date.now() - ts;
+                  const diff = historyNow - ts;
                   if (diff < 60_000) return '刚刚';
                   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
                   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
@@ -540,11 +569,11 @@ export function MeetingBar({
                 <button
                   type="button"
                   className="meeting-bar__ai-quick-btn"
-                  onClick={() => sendAiMessage(`当前会议阶段是"${phases.find(p => p.id === activePhaseId)?.label ?? '未知'}"，请根据阶段内容生成一组白板卡片，帮助团队推进讨论。`)}
+                  onClick={() => void sendAiMessage(`当前会议阶段是"${phases.find(p => p.id === activePhaseId)?.label ?? '未知'}"，请根据阶段内容生成一组白板卡片，帮助团队推进讨论。复杂内容请自动拆成多个区域。`)}
                   disabled={aiLoading}
                 >
                   <Sparkles size={13} aria-hidden />
-                  生成当前阶段内容
+                  智能生成当前阶段
                 </button>
                 <button
                   type="button"
