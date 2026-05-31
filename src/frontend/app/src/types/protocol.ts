@@ -218,6 +218,11 @@ export type RoomPhasesBroadcastMessage = {
   phases: Array<{ id: string; label: string; hint: string; templateId: string }>;
 };
 
+export type RoomMembersBroadcastMessage = {
+  type: 'room-members';
+  roomId: string;
+};
+
 export type ServerMessage =
   | JoinedMessage
   | PeerJoinedMessage
@@ -230,4 +235,5 @@ export type ServerMessage =
   | RoomEmojiBroadcastMessage
   | RoomPhaseBroadcastMessage
   | RoomPhasesBroadcastMessage
+  | RoomMembersBroadcastMessage
   | ErrorMessage;

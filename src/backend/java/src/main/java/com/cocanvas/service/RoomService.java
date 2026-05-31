@@ -134,6 +134,25 @@ public class RoomService {
                 .orElseGet(() -> new EffectiveAccess(cleanMode(room.getPermissionMode(), "edit"), ""));
     }
 
+    /**
+     * 登录用户成功进入房间时自动登记为成员（按房间默认权限）：
+     * - 已是成员（含 owner）→ 不变；
+     * - 否则按房间 permissionMode（edit/comment/view）作为初始角色加入，便于 owner 在列表中看到并管理。
+     * 返回 true 表示本次新增了成员。
+     */
+    @Transactional
+    public boolean ensureMember(RoomEntity room, AuthService.UserPrincipal principal) {
+        if (principal == null) {
+            return false;
+        }
+        if (roomMemberRepository.findByRoomIdAndUserId(room.getRoomId(), principal.userId()).isPresent()) {
+            return false;
+        }
+        String defaultRole = cleanRole(room.getPermissionMode());
+        upsertMemberInternal(room.getRoomId(), principal.userId(), defaultRole, principal.userId(), System.currentTimeMillis());
+        return true;
+    }
+
     public boolean canWrite(String permissionMode, String opType, String shapeType) {
         String mode = cleanMode(permissionMode, "edit");
         if ("view".equals(mode)) {

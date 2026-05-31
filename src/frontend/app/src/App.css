@@ -264,11 +264,35 @@
 }
 
 .account-badge {
-  width: 18px;
-  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border: 2px solid #fff;
   border-radius: 999px;
   box-shadow: 0 0 0 1px #cbd5e1;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.account-card.compact .account-badge {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+
+/* 内联表单容器（头部）：去掉旧的 grid，改为简单包裹 .auth-form */
+.account-login {
+  display: block !important;
+  grid-template-columns: none !important;
+  width: min(340px, 100%);
+  padding: 12px !important;
+}
+
+.account-login.compact {
+  width: min(320px, 100%);
 }
 
 .account-login__title {
@@ -1019,18 +1043,16 @@
   color: #dc2626;
 }
 
-.room-members-panel {
-  position: relative;
-  z-index: 25;
-  display: grid;
-  gap: 8px;
-  padding: 8px 18px 8px 92px;
-  border-bottom: 1px solid #e5e7eb;
-  background: rgba(248, 250, 252, 0.92);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+/* 成员权限：底部 MeetingBar 的标签页内容 */
+.meeting-bar__members {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 16px;
+  max-height: 340px;
+  overflow-y: auto;
 }
 
-.room-members-panel header,
 .member-strip,
 .member-chip,
 .member-add-form {
@@ -1040,25 +1062,33 @@
   flex-wrap: wrap;
 }
 
-.room-members-panel header {
-  justify-content: space-between;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.room-members-panel header span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.member-strip {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .member-chip {
-  border: 1px solid #d6dde7;
-  border-radius: 999px;
-  padding: 5px 7px;
-  background: #ffffff;
+  width: 100%;
+  justify-content: flex-start;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: #f8fafc;
   font-size: 12px;
+}
+
+.member-chip select {
+  margin-left: auto;
+}
+
+.member-add-form {
+  border-top: 1px solid #eef2f6;
+  padding-top: 10px;
+}
+
+.member-add-form input {
+  flex: 1;
+  min-width: 0;
 }
 
 .member-chip strong {
@@ -1079,6 +1109,21 @@
   height: 14px;
   border-radius: 999px;
   box-shadow: 0 0 0 1px #cbd5e1;
+  flex-shrink: 0;
+}
+
+/* 在线/离线指示 */
+.member-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.member-presence.online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
 }
 
 .member-chip select,
@@ -1115,6 +1160,197 @@
   color: #b42318;
   font-weight: 800;
 }
+
+/* ── 登录 / 注册（全新 UI） ── */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  border-radius: 12px;
+  background: #eef2f6;
+}
+
+.auth-tabs button {
+  position: relative;
+  z-index: 1;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.18s;
+}
+
+.auth-tabs button.active {
+  color: #145c4a;
+}
+
+.auth-tabs__slider {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: calc(50% - 4px);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.auth-tabs__slider--login { transform: translateX(0); }
+.auth-tabs__slider--register { transform: translateX(100%); }
+
+.auth-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  height: 44px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+  color: #94a3b8;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.auth-field:focus-within {
+  border-color: #145c4a;
+  box-shadow: 0 0 0 3px rgba(20, 92, 74, 0.12);
+}
+
+.auth-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-size: 14px;
+}
+
+.auth-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  border: none;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #167a60, #145c4a);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s, opacity 0.15s;
+}
+
+.auth-submit:hover:not(:disabled) { filter: brightness(1.08); }
+.auth-submit:active:not(:disabled) { transform: translateY(1px); }
+.auth-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.auth-error {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 全屏登录门 */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(20, 92, 74, 0.18), transparent 42%),
+    radial-gradient(circle at 82% 88%, rgba(55, 114, 255, 0.14), transparent 46%),
+    linear-gradient(160deg, #f1f5f9, #e2e8f0);
+}
+
+.auth-gate__card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.22);
+}
+
+.auth-gate__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.auth-gate__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #167a60, #145c4a);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(20, 92, 74, 0.35);
+}
+
+.auth-gate__brand h1 {
+  margin: 0;
+  font-size: 24px;
+  color: #0f172a;
+}
+
+.auth-gate__brand p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.auth-gate__hint {
+  margin: 0;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 房间门：去登录按钮 */
+.gate-primary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 10px 22px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #167a60, #145c4a);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.gate-primary-link:hover { filter: brightness(1.08); }
 
 .toolbar {
   display: flex;

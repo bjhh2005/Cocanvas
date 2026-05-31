@@ -65,6 +65,8 @@ const permissionLabel = (mode: string) => {
 export function Home() {
   const navigate = useNavigate();
   const authToken = useUserStore((state) => state.authToken);
+  const username = useUserStore((state) => state.username);
+  const signedIn = Boolean(authToken && username);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [form, setForm] = useState<RoomFormState>(emptyForm);
   const [joinRoomId, setJoinRoomId] = useState('');
@@ -174,6 +176,11 @@ export function Home() {
       setError(err instanceof Error ? err.message : '归档房间失败');
     }
   };
+
+  // 未登录：只显示登录门，登录后才能进入控制台与房间
+  if (!signedIn) {
+    return <AccountPanel variant="gate" onAccountChange={() => void loadRooms()} />;
+  }
 
   return (
     <main className="room-console">

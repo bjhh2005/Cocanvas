@@ -4,6 +4,8 @@ import java.util.List;
 
 import com.cocanvas.cluster.NodeInfo;
 import com.cocanvas.persistence.entity.RoomEntity;
+import com.cocanvas.protocol.outbound.RoomMembersBroadcastMessage;
+import com.cocanvas.pubsub.RealtimeBroadcaster;
 import com.cocanvas.routing.NodeRouter;
 import com.cocanvas.service.AuthService;
 import com.cocanvas.service.JoinTokenService;
@@ -33,12 +35,24 @@ public class RoomController {
     private final JoinTokenService joinTokenService;
     private final RoomService roomService;
     private final AuthService authService;
+    private final RealtimeBroadcaster broadcaster;
 
-    public RoomController(NodeRouter nodeRouter, JoinTokenService joinTokenService, RoomService roomService, AuthService authService) {
+    public RoomController(NodeRouter nodeRouter, JoinTokenService joinTokenService, RoomService roomService,
+                          AuthService authService, RealtimeBroadcaster broadcaster) {
         this.nodeRouter = nodeRouter;
         this.joinTokenService = joinTokenService;
         this.roomService = roomService;
         this.authService = authService;
+        this.broadcaster = broadcaster;
+    }
+
+    /** 成员/角色变化后，通知房间内所有客户端刷新自身权限与成员列表。 */
+    private void notifyMembersChanged(String roomId) {
+        try {
+            broadcaster.broadcast(roomId, new RoomMembersBroadcastMessage(roomId), null);
+        } catch (Exception ignored) {
+            // 广播失败不影响成员操作结果
+        }
     }
 
     @GetMapping({"/api/rooms", "/rooms"})
@@ -112,6 +126,7 @@ public class RoomController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         RoomMemberView member = roomService.claimOwner(roomId, authService.authenticateHeader(authorization).orElse(null));
+        notifyMembersChanged(roomId);
         return toMemberResponse(member);
     }
 
@@ -138,6 +153,7 @@ public class RoomController {
                 body.role(),
                 authService.authenticateHeader(authorization).orElse(null)
         );
+        notifyMembersChanged(roomId);
         return toMemberResponse(member);
     }
 
@@ -149,6 +165,7 @@ public class RoomController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         roomService.removeMember(roomId, userId, authService.authenticateHeader(authorization).orElse(null));
+        notifyMembersChanged(roomId);
     }
 
     @ExceptionHandler(RoomNotFoundException.class)
@@ -183,6 +200,11 @@ public class RoomController {
         var access = roomService.effectiveAccess(room, principal);
         boolean memberAuthorized = !access.memberRole().isBlank();
         boolean authorized = memberAuthorized || passwordAuthorized;
+        // 授权进入但尚未登记的登录用户 → 按房间默认权限自动成为成员，便于 owner 在成员列表中管理
+        if (authorized && principal != null && !memberAuthorized && roomService.ensureMember(room, principal)) {
+            access = roomService.effectiveAccess(room, principal);
+            memberAuthorized = !access.memberRole().isBlank();
+        }
         String effectivePermissionMode = authorized ? access.permissionMode() : room.getPermissionMode();
         String token = authorized ? joinTokenService.issue(room.getRoomId(), effectivePermissionMode) : "";
         return new QueryRoomResponse(

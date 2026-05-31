@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, Bot, ChevronDown, ChevronUp, FileText, History, Mic, MicOff, Send, Smile, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AudioLines, Bot, ChevronDown, ChevronUp, FileText, History, Mic, MicOff, Send, Smile, Sparkles, Users } from 'lucide-react';
 import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
 import type { HistoryAnchors } from '../network/api';
 
@@ -53,6 +53,8 @@ interface MeetingBarProps {
   // AI
   onAiChat: (prompt: string) => Promise<{ message: string; ops: Array<Record<string, unknown>> }>;
   onAiSummarize: () => Promise<string>;
+  // Members（成员权限，由 Room 构建内容，作为 slot 注入）
+  membersSlot?: ReactNode;
   // Synced state
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
@@ -103,13 +105,14 @@ export function MeetingBar({
   onToggleMic,
   onAiChat,
   onAiSummarize,
+  membersSlot,
   chatMessages,
   onSendMessage,
   onSendEmoji,
   remoteEmoji,
 }: MeetingBarProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'flow' | 'chat' | 'history' | 'ai'>('flow');
+  const [tab, setTab] = useState<'flow' | 'chat' | 'history' | 'ai' | 'members'>('flow');
   const [input, setInput] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
@@ -353,6 +356,18 @@ export function MeetingBar({
               <Bot size={13} aria-hidden />
               AI 助手
             </button>
+            {membersSlot && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'members'}
+                className={tab === 'members' ? 'active' : ''}
+                onClick={() => setTab('members')}
+              >
+                <Users size={13} aria-hidden />
+                成员权限
+              </button>
+            )}
           </div>
 
           {/* ── Meeting flow tab ── */}
@@ -648,6 +663,13 @@ export function MeetingBar({
                   <Send size={15} />
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ── Members tab ── */}
+          {tab === 'members' && membersSlot && (
+            <div className="meeting-bar__members" role="tabpanel">
+              {membersSlot}
             </div>
           )}
 

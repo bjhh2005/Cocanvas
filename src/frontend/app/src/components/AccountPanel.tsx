@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { LogIn, LogOut, ShieldCheck } from 'lucide-react';
+import { LogIn, LogOut, Lock, User, UserPlus } from 'lucide-react';
 import { loginUser, registerUser } from '../network/api';
 import { useUserStore } from '../store/userStore';
 
 type AccountPanelProps = {
   compact?: boolean;
+  // 'inline' = 嵌在头部的小表单；'gate' = 进入前的全屏登录卡
+  variant?: 'inline' | 'gate';
   onAccountChange?: () => void;
 };
 
-export function AccountPanel({ compact = false, onAccountChange }: AccountPanelProps) {
+export function AccountPanel({ compact = false, variant = 'inline', onAccountChange }: AccountPanelProps) {
   const username = useUserStore((state) => state.username);
   const authToken = useUserStore((state) => state.authToken);
   const displayName = useUserStore((state) => state.displayName);
@@ -17,6 +19,7 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
   const clearAccount = useUserStore((state) => state.clearAccount);
   const [loginName, setLoginName] = useState(username);
   const [password, setPassword] = useState('');
+  const [nickname, setNickname] = useState(displayName);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,11 +31,16 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
       setError('请输入用户名和密码');
       return;
     }
+    if (password.length < 4) {
+      setError('密码至少 4 位');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const authAction = mode === 'login' ? loginUser : registerUser;
-      const account = await authAction(loginName, password, displayName, color);
+      const account = mode === 'login'
+        ? await loginUser(loginName, password, displayName, color)
+        : await registerUser(loginName, password, nickname.trim() || loginName, color);
       setAccount(account);
       setLoginName(account.username);
       setPassword('');
@@ -50,10 +58,13 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
     onAccountChange?.();
   };
 
+  // ── 已登录：紧凑账号卡 ──
   if (signedIn) {
     return (
       <div className={`account-card${compact ? ' compact' : ''}`}>
-        <span className="account-badge" style={{ background: color }} />
+        <span className="account-badge" style={{ background: color }}>
+          {displayName.slice(0, 1).toUpperCase()}
+        </span>
         <div className="account-card__meta">
           {!compact && <span className="account-eyebrow">已登录</span>}
           <strong>{displayName}</strong>
@@ -67,73 +78,95 @@ export function AccountPanel({ compact = false, onAccountChange }: AccountPanelP
     );
   }
 
-  return (
+  // ── 共享的表单主体 ──
+  const formBody = (
     <form
-      className={`account-login${compact ? ' compact' : ''}`}
+      className="auth-form"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
-      <div className="account-login__title">
-        <span className="account-login__icon">
-          <ShieldCheck size={15} aria-hidden />
-        </span>
-        <div>
-          <strong>账号</strong>
-          {!compact && <span>{mode === 'login' ? '登录已有账号' : '创建新账号'}</span>}
-        </div>
-      </div>
-      <div className="account-mode-toggle" role="tablist" aria-label="账号操作">
+      <div className="auth-tabs" role="tablist" aria-label="账号操作">
         <button
           type="button"
+          role="tab"
           className={mode === 'login' ? 'active' : ''}
           aria-selected={mode === 'login'}
-          onClick={() => {
-            setMode('login');
-            setError(null);
-          }}
+          onClick={() => { setMode('login'); setError(null); }}
         >
           登录
         </button>
         <button
           type="button"
+          role="tab"
           className={mode === 'register' ? 'active' : ''}
           aria-selected={mode === 'register'}
-          onClick={() => {
-            setMode('register');
-            setError(null);
-          }}
+          onClick={() => { setMode('register'); setError(null); }}
         >
           注册
         </button>
+        <span className={`auth-tabs__slider auth-tabs__slider--${mode}`} aria-hidden />
       </div>
-      <div className="account-login__fields">
-        <label className="account-field">
-          <span>用户名</span>
+
+      <label className="auth-field">
+        <User size={16} aria-hidden />
+        <input
+          value={loginName}
+          placeholder="用户名"
+          autoComplete="username"
+          onChange={(event) => setLoginName(event.target.value)}
+        />
+      </label>
+
+      {mode === 'register' && (
+        <label className="auth-field">
+          <UserPlus size={16} aria-hidden />
           <input
-            value={loginName}
-            placeholder="alice"
-            autoComplete="username"
-            onChange={(event) => setLoginName(event.target.value)}
+            value={nickname}
+            placeholder="昵称（显示名，可留空）"
+            onChange={(event) => setNickname(event.target.value)}
           />
         </label>
-        <label className="account-field">
-          <span>密码</span>
-          <input
-            value={password}
-            type="password"
-            placeholder="至少 4 位"
-            autoComplete="current-password"
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
-      </div>
-      <button type="submit" className="account-button primary" disabled={loading}>
-        <LogIn size={15} aria-hidden />
-        <span>{loading ? (mode === 'login' ? '登录中' : '注册中') : (mode === 'login' ? '登录' : '注册')}</span>
+      )}
+
+      <label className="auth-field">
+        <Lock size={16} aria-hidden />
+        <input
+          value={password}
+          type="password"
+          placeholder="密码（至少 4 位）"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+
+      <button type="submit" className="auth-submit" disabled={loading}>
+        {mode === 'login' ? <LogIn size={16} aria-hidden /> : <UserPlus size={16} aria-hidden />}
+        <span>{loading ? (mode === 'login' ? '登录中…' : '注册中…') : (mode === 'login' ? '登录' : '注册并登录')}</span>
       </button>
-      {error && <small className="account-error" role="alert">{error}</small>}
+
+      {error && <small className="auth-error" role="alert">{error}</small>}
     </form>
   );
+
+  // ── 全屏登录门 ──
+  if (variant === 'gate') {
+    return (
+      <div className="auth-gate">
+        <div className="auth-gate__card">
+          <div className="auth-gate__brand">
+            <span className="auth-gate__logo">C</span>
+            <h1>Cocanvas</h1>
+            <p>多人实时协作白板 · 登录后进入工作台</p>
+          </div>
+          {formBody}
+          <p className="auth-gate__hint">进入房间前需要登录，登录后即可创建、加入与协作。</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 内联表单（头部） ──
+  return <div className={`account-login${compact ? ' compact' : ''}`}>{formBody}</div>;
 }

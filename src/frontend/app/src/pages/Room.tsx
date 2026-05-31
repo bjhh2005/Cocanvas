@@ -20,11 +20,9 @@ import {
   Scissors,
   Trash2,
   UserPlus,
-  Users,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { AccountPanel } from '../components/AccountPanel';
 import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '../components/CanvasBoard';
 import { CursorLayer } from '../components/CursorLayer';
 import { MeetingBar } from '../components/MeetingBar';
@@ -515,7 +513,6 @@ export function Room() {
   const shellRef = useRef<HTMLElement | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
   const topbarRef = useRef<HTMLElement | null>(null);
-  const memberPanelRef = useRef<HTMLElement | null>(null);
   const hlcRef = useRef<HybridLogicalClock | null>(null);
   const lastCursorSentAt = useRef(0);
   const lastCursorSentPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -548,6 +545,7 @@ export function Room() {
   const removePeer = useUserStore((state) => state.removePeer);
   const updateCursors = useUserStore((state) => state.updateCursors);
   const remoteCount = useUserStore((state) => Object.keys(state.remotes).length);
+  const remotes = useUserStore((state) => state.remotes);
   const applyOp = useShapeStore((state) => state.applyOp);
   const replaceWithSnapshot = useShapeStore((state) => state.replaceWithSnapshot);
   const shapeMap = useShapeStore((state) => state.shapes);
@@ -844,6 +842,16 @@ export function Room() {
     await verifyRoomAccess(roomPassword || undefined);
     await loadMembers();
   }, [loadMembers, roomPassword, verifyRoomAccess]);
+
+  // 用 ref 持有最新回调，供 WS 事件调用而不污染连接 effect 的依赖
+  const loadMembersRef = useRef(loadMembers);
+  useEffect(() => {
+    loadMembersRef.current = loadMembers;
+  }, [loadMembers]);
+  const refreshAccessAndMembersRef = useRef(refreshAccessAndMembers);
+  useEffect(() => {
+    refreshAccessAndMembersRef.current = refreshAccessAndMembers;
+  }, [refreshAccessAndMembers]);
 
   const handleClaimOwner = useCallback(async () => {
     if (!authToken) {
@@ -1239,7 +1247,7 @@ export function Room() {
   }, [loadMembers, roomAccessState]);
 
   useEffect(() => {
-    if (!roomId || roomAccessState !== 'ready' || !roomWsUrl) {
+    if (!roomId || roomAccessState !== 'ready' || !roomWsUrl || !authToken) {
       return;
     }
 
@@ -1365,12 +1373,20 @@ export function Room() {
         if (message.type === 'peer-joined') {
           addPeer(message);
           setEvents((current) => [`${message.displayName} joined`, ...current].slice(0, 5));
+          // 新加入者进房时已按房间默认权限自动登记为成员，刷新成员列表让 owner 立即看到
+          void loadMembersRef.current?.();
           return;
         }
 
         if (message.type === 'peer-left') {
           removePeer(message.userId);
           setEvents((current) => [`${message.userId.slice(0, 8)} left`, ...current].slice(0, 5));
+          return;
+        }
+
+        if (message.type === 'room-members') {
+          // 成员/角色变化：刷新自身权限、角色与成员列表（重取 join token，使权限即时生效）
+          void refreshAccessAndMembersRef.current?.();
           return;
         }
 
@@ -1457,7 +1473,7 @@ export function Room() {
       setClient(null);
       setRoomId(null);
     };
-  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, color, displayName, fitViewportToContent, flushPendingOps, joinToken, queueRemoteCursor, queueRemoteShapePreview, removePeer, replayBufferedOps, resetRemoteTransientBuffers, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, userId]);
+  }, [acknowledgePendingOp, addPeer, applyOp, applyRemoteOp, authToken, color, displayName, fitViewportToContent, flushPendingOps, joinToken, queueRemoteCursor, queueRemoteShapePreview, removePeer, replayBufferedOps, resetRemoteTransientBuffers, restoreLatestState, roomAccessState, roomId, roomWsUrl, setClient, setPeers, setRoomId, setStatus, userId]);
 
   useEffect(() => {
     if (roomAccessState !== 'ready') {
@@ -1471,8 +1487,8 @@ export function Room() {
 
     const updateStageSize = () => {
       const topbarHeight = Math.ceil(topbarRef.current?.getBoundingClientRect().height ?? 86);
-      const memberPanelHeight = Math.ceil(memberPanelRef.current?.getBoundingClientRect().height ?? 0);
-      const boardTop = topbarHeight + memberPanelHeight;
+      // 成员面板已改为左下角浮层，不再占据画布顶部空间
+      const boardTop = topbarHeight;
       const nextWidth = Math.ceil(window.innerWidth);
       const nextHeight = Math.max(1, window.innerHeight - boardTop);
       if (nextWidth < 2 || nextHeight < 2) {
@@ -1491,9 +1507,6 @@ export function Room() {
     observer.observe(element);
     if (topbarRef.current) {
       observer.observe(topbarRef.current);
-    }
-    if (memberPanelRef.current) {
-      observer.observe(memberPanelRef.current);
     }
     window.addEventListener('resize', updateStageSize);
     const frameId = window.requestAnimationFrame(updateStageSize);
@@ -2433,6 +2446,91 @@ export function Room() {
   const canManageMembers = roomMemberRole === 'owner';
   const canClaimOwner = Boolean(authToken && roomAccessState === 'ready' && members.length === 0);
 
+  // 成员权限面板内容，作为 slot 注入底部 MeetingBar 的「成员权限」标签
+  const membersSlot = (
+    <>
+      <div className="member-strip">
+        {members.map((member) => {
+          // 显示名/颜色取实时身份（本地用户或在线 peer 的会话别名），数据库值仅作离线兜底
+          const isSelf = member.userId === userId;
+          const peer = remotes[member.userId];
+          const online = isSelf || Boolean(peer);
+          const liveName = isSelf ? displayName : (peer?.displayName ?? member.displayName);
+          const liveColor = isSelf ? color : (peer?.color ?? '#94a3b8');
+          return (
+          <div key={member.userId} className="member-chip">
+            <span className="member-dot" style={{ background: liveColor }} />
+            <span className={`member-presence${online ? ' online' : ''}`} title={online ? '在线' : '离线'} />
+            <strong>{liveName}</strong>
+            <small>@{member.username || member.userId.slice(0, 8)}</small>
+            {canManageMembers ? (
+              <select
+                value={member.role}
+                onChange={(event) => void handleChangeMemberRole(member, event.target.value as RoomMember['role'])}
+                disabled={member.userId === userId && member.role === 'owner'}
+              >
+                <option value="owner">owner</option>
+                <option value="edit">edit</option>
+                <option value="comment">comment</option>
+                <option value="view">view</option>
+              </select>
+            ) : (
+              <em>{member.role}</em>
+            )}
+            {canManageMembers && member.userId !== userId && (
+              <button type="button" onClick={() => void handleRemoveMember(member)}>移除</button>
+            )}
+          </div>
+          );
+        })}
+        {members.length === 0 && <span className="member-empty">当前房间还没有账号成员，继续兼容密码 / join token 进入。</span>}
+      </div>
+      {canManageMembers && (
+        <form
+          className="member-add-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSaveMember();
+          }}
+        >
+          <UserPlus size={15} aria-hidden />
+          <input value={memberUsername} placeholder="输入对方用户名" onChange={(event) => setMemberUsername(event.target.value)} />
+          <select value={memberRole} onChange={(event) => setMemberRole(event.target.value as RoomMember['role'])}>
+            <option value="edit">可编辑</option>
+            <option value="comment">可评论</option>
+            <option value="view">只读</option>
+            <option value="owner">owner</option>
+          </select>
+          <button type="submit">添加/更新</button>
+        </form>
+      )}
+      {canClaimOwner && (
+        <button type="button" className="claim-owner-btn" onClick={() => void handleClaimOwner()}>
+          认领为房间 owner
+        </button>
+      )}
+      {membersLoading && <small className="member-hint">同步中…</small>}
+      {authToken && !canManageMembers && members.length > 0 && (
+        <small className="member-hint">当前账号 {username ? `@${username}` : ''} 不是 owner，只能查看成员。</small>
+      )}
+      {memberError && <small className="member-error">{memberError}</small>}
+    </>
+  );
+
+  // 进入房间前必须登录：未登录直接挡在门外，引导回控制台登录
+  if (!authToken || !username) {
+    return (
+      <main className="room-gate">
+        <section className="room-gate-panel">
+          <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> 房间控制台</Link>
+          <h1>请先登录</h1>
+          <p>进入协作房间前需要登录账号。请返回控制台登录后再进入。</p>
+          <Link to="/" className="gate-primary-link">去登录</Link>
+        </section>
+      </main>
+    );
+  }
+
   if (roomAccessState !== 'ready') {
     return (
       <main className="room-gate">
@@ -2486,7 +2584,6 @@ export function Room() {
           <p>Room {roomId}</p>
         </div>
         <UserIdentityEditor compact />
-        <AccountPanel compact onAccountChange={() => void refreshAccessAndMembers()} />
         <div className="room-stats">
           <div className="undo-redo-btns">
             <button
@@ -2537,69 +2634,6 @@ export function Room() {
           )}
         </div>
       </header>
-
-      <section className="room-members-panel" ref={memberPanelRef}>
-        <header>
-          <span><Users size={15} aria-hidden />成员权限</span>
-          {membersLoading && <small>同步中...</small>}
-        </header>
-        <div className="member-strip">
-          {members.map((member) => (
-            <div key={member.userId} className="member-chip">
-              <span className="member-dot" style={{ background: member.color }} />
-              <strong>{member.displayName}</strong>
-              <small>@{member.username || member.userId.slice(0, 8)}</small>
-              {canManageMembers ? (
-                <select
-                  value={member.role}
-                  onChange={(event) => void handleChangeMemberRole(member, event.target.value as RoomMember['role'])}
-                  disabled={member.userId === userId && member.role === 'owner'}
-                >
-                  <option value="owner">owner</option>
-                  <option value="edit">edit</option>
-                  <option value="comment">comment</option>
-                  <option value="view">view</option>
-                </select>
-              ) : (
-                <em>{member.role}</em>
-              )}
-              {canManageMembers && member.userId !== userId && (
-                <button type="button" onClick={() => void handleRemoveMember(member)}>移除</button>
-              )}
-            </div>
-          ))}
-          {members.length === 0 && <span className="member-empty">当前房间还没有账号成员，继续兼容密码 / join token 进入。</span>}
-        </div>
-        {canManageMembers && (
-          <form
-            className="member-add-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSaveMember();
-            }}
-          >
-            <UserPlus size={15} aria-hidden />
-            <input value={memberUsername} placeholder="输入对方用户名" onChange={(event) => setMemberUsername(event.target.value)} />
-            <select value={memberRole} onChange={(event) => setMemberRole(event.target.value as RoomMember['role'])}>
-              <option value="edit">可编辑</option>
-              <option value="comment">可评论</option>
-              <option value="view">只读</option>
-              <option value="owner">owner</option>
-            </select>
-            <button type="submit">添加/更新</button>
-          </form>
-        )}
-        {canClaimOwner && (
-          <button type="button" className="claim-owner-btn" onClick={() => void handleClaimOwner()}>
-            认领为房间 owner
-          </button>
-        )}
-        {!authToken && <small className="member-hint">登录账号后，新建房间会自动成为 owner，也可以管理成员权限。</small>}
-        {authToken && !canManageMembers && members.length > 0 && (
-          <small className="member-hint">当前账号 {username ? `@${username}` : ''} 不是 owner，只能查看成员。</small>
-        )}
-        {memberError && <small className="member-error">{memberError}</small>}
-      </section>
 
       <Toolbar
         activeTool={activeTool}
@@ -2695,6 +2729,7 @@ export function Room() {
           onToggleMic={() => void toggleMicrophone()}
           onAiChat={handleAiChat}
           onAiSummarize={handleAiSummarize}
+          membersSlot={membersSlot}
           chatMessages={chatMessages}
           onSendMessage={handleSendChatMessage}
           onSendEmoji={handleSendEmoji}
