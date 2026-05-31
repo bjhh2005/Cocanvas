@@ -21,7 +21,9 @@ import {
   updateRoom,
   type RoomSummary,
 } from '../network/api';
+import { AccountPanel } from '../components/AccountPanel';
 import { UserIdentityEditor } from '../components/UserIdentityEditor';
+import { useUserStore } from '../store/userStore';
 
 type RoomFormState = {
   roomId: string;
@@ -62,6 +64,7 @@ const permissionLabel = (mode: string) => {
 
 export function Home() {
   const navigate = useNavigate();
+  const authToken = useUserStore((state) => state.authToken);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [form, setForm] = useState<RoomFormState>(emptyForm);
   const [joinRoomId, setJoinRoomId] = useState('');
@@ -127,7 +130,7 @@ export function Home() {
         permissionMode: form.permissionMode,
         password: form.password || undefined,
         voiceEnabled: form.voiceEnabled,
-      });
+      }, authToken || undefined);
       await loadRooms();
       navigate(`/room/${room.roomId}${form.password ? `?password=${encodeURIComponent(form.password)}` : ''}`);
     } catch (err) {
@@ -182,6 +185,7 @@ export function Home() {
         </div>
         <div className="console-actions">
           <UserIdentityEditor />
+          <AccountPanel onAccountChange={() => void loadRooms()} />
           <div className="refresh-stack">
             <button type="button" className="ghost-action" onClick={() => void loadRooms()} disabled={loadingRooms}>
               {loadingRooms ? <LoaderCircle size={16} className="spin-icon" aria-hidden /> : <RefreshCw size={16} aria-hidden />}

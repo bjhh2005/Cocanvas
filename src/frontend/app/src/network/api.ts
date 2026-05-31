@@ -8,6 +8,7 @@ export type CreateRoomResponse = {
   passwordProtected: boolean;
   voiceEnabled: boolean;
   joinToken: string;
+  memberRole: string;
 };
 
 export type QueryRoomResponse = {
@@ -23,6 +24,7 @@ export type QueryRoomResponse = {
   passwordProtected: boolean;
   voiceEnabled: boolean;
   joinToken: string;
+  memberRole: string;
 };
 
 export type RoomSummary = {
@@ -53,6 +55,23 @@ export type UpdateRoomRequest = {
   voiceEnabled: boolean;
 };
 
+export type AuthUser = {
+  userId: string;
+  username: string;
+  displayName: string;
+  color: string;
+  authToken: string;
+};
+
+export type RoomMember = {
+  userId: string;
+  username: string;
+  displayName: string;
+  color: string;
+  role: 'owner' | 'edit' | 'comment' | 'view';
+  updatedAt: number;
+};
+
 export type HistoryResponse = {
   snapshot: {
     snapshotId: string;
@@ -68,6 +87,10 @@ export type HistoryResponse = {
     payload: string;
   }>;
 };
+
+const authHeaders = (authToken?: string): HeadersInit => (
+  authToken ? { Authorization: `Bearer ${authToken}` } : {}
+);
 
 export const fetchHealth = async () => {
   // 通过 Nginx 代理请求，使用相对路径 /api/... ，解决跨域与端口封闭的问题
@@ -87,10 +110,29 @@ export const listRooms = async (): Promise<RoomSummary[]> => {
   return response.json();
 };
 
-export const createRoom = async (request?: CreateRoomRequest): Promise<CreateRoomResponse> => {
-  const response = await fetch('/api/rooms', {
+export const loginUser = async (
+  username: string,
+  password: string,
+  displayName?: string,
+  color?: string,
+): Promise<AuthUser> => {
+  const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, displayName, color }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message ?? '登录失败');
+  }
+
+  return response.json();
+};
+
+export const createRoom = async (request?: CreateRoomRequest, authToken?: string): Promise<CreateRoomResponse> => {
+  const response = await fetch('/api/rooms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(authToken) },
     body: JSON.stringify(request ?? {}),
   });
   if (!response.ok) {
@@ -100,9 +142,11 @@ export const createRoom = async (request?: CreateRoomRequest): Promise<CreateRoo
   return response.json();
 };
 
-export const getRoom = async (roomId: string, password?: string): Promise<QueryRoomResponse> => {
+export const getRoom = async (roomId: string, password?: string, authToken?: string): Promise<QueryRoomResponse> => {
   const query = password ? `?password=${encodeURIComponent(password)}` : '';
-  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}${query}`);
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}${query}`, {
+    headers: authHeaders(authToken),
+  });
   if (!response.ok) {
     throw new Error('Failed to query room');
   }
@@ -127,6 +171,52 @@ export const archiveRoom = async (roomId: string): Promise<void> => {
   const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`, { method: 'DELETE' });
   if (!response.ok) {
     throw new Error('Failed to archive room');
+  }
+};
+
+export const listRoomMembers = async (roomId: string): Promise<RoomMember[]> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/members`);
+  if (!response.ok) throw new Error('Failed to list room members');
+  return response.json();
+};
+
+export const claimRoomOwner = async (roomId: string, authToken: string): Promise<RoomMember> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/members/claim`, {
+    method: 'POST',
+    headers: authHeaders(authToken),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message ?? '认领房间失败');
+  }
+  return response.json();
+};
+
+export const upsertRoomMember = async (
+  roomId: string,
+  request: { username?: string; userId?: string; role: RoomMember['role'] },
+  authToken: string,
+): Promise<RoomMember> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/members`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(authToken) },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message ?? '保存成员失败');
+  }
+  return response.json();
+};
+
+export const removeRoomMember = async (roomId: string, userId: string, authToken: string): Promise<void> => {
+  const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(authToken),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message ?? '移除成员失败');
   }
 };
 

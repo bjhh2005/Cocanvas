@@ -200,6 +200,90 @@
   width: 100px;
 }
 
+.account-card,
+.account-login {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d6dde7;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.account-card.compact,
+.account-login.compact {
+  min-height: 42px;
+  padding: 7px 9px;
+}
+
+.account-card > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.account-card strong {
+  max-width: 110px;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-card span,
+.account-login small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.account-badge {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.account-login input {
+  width: 92px;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 4px 0;
+  background: transparent;
+  font: inherit;
+  outline: none;
+}
+
+.account-login.compact input {
+  width: 76px;
+}
+
+.account-card button,
+.account-login button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d6dde7;
+  border-radius: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  background: #f8fafc;
+  color: #172033;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.account-login small {
+  max-width: 160px;
+  color: #b42318;
+}
+
 .room-identity input {
   width: 100px;
 }
@@ -746,6 +830,103 @@
 
 .collab-diagnostics .diag-error {
   color: #dc2626;
+}
+
+.room-members-panel {
+  position: relative;
+  z-index: 25;
+  display: grid;
+  gap: 8px;
+  padding: 8px 18px 8px 92px;
+  border-bottom: 1px solid #e5e7eb;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.room-members-panel header,
+.member-strip,
+.member-chip,
+.member-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.room-members-panel header {
+  justify-content: space-between;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.room-members-panel header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.member-chip {
+  border: 1px solid #d6dde7;
+  border-radius: 999px;
+  padding: 5px 7px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.member-chip strong {
+  color: #172033;
+}
+
+.member-chip small,
+.member-chip em,
+.member-empty,
+.member-hint {
+  color: #64748b;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.member-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.member-chip select,
+.member-add-form select,
+.member-add-form input {
+  border: 1px solid #d6dde7;
+  border-radius: 7px;
+  padding: 5px 7px;
+  color: #172033;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+}
+
+.member-add-form button,
+.member-chip button,
+.claim-owner-btn {
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 10px;
+  color: white;
+  background: #145c4a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.member-chip button {
+  background: #b42318;
+}
+
+.member-error {
+  color: #b42318;
+  font-weight: 800;
 }
 
 .toolbar {

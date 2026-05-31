@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { AuthUser } from '../network/api';
 import type { PeerInfo } from '../types/protocol';
 
 type RemotePeer = PeerInfo & {
@@ -16,9 +17,13 @@ type CursorUpdate = {
 
 type UserState = {
   userId: string;
+  username: string;
+  authToken: string;
   displayName: string;
   color: string;
   remotes: Record<string, RemotePeer>;
+  setAccount: (account: AuthUser) => void;
+  clearAccount: () => void;
   setDisplayName: (displayName: string) => void;
   setColor: (color: string) => void;
   addPeer: (peer: PeerInfo) => void;
@@ -43,7 +48,7 @@ const createUserProfile = () => {
   const userId = createUserId();
   const color = userPalette[Math.floor(Math.random() * userPalette.length)];
   const displayName = `User ${userId.slice(0, 4)}`;
-  return { userId, color, displayName };
+  return { userId, username: '', authToken: '', color, displayName };
 };
 
 const loadUserProfile = () => {
@@ -56,6 +61,8 @@ const loadUserProfile = () => {
     const stored = JSON.parse(localStorage.getItem(profileStorageKey) ?? '{}') as Partial<typeof fallback>;
     return {
       userId: stored.userId || fallback.userId,
+      username: stored.username || '',
+      authToken: stored.authToken || '',
       displayName: stored.displayName || fallback.displayName,
       color: stored.color || fallback.color,
     };
@@ -64,7 +71,7 @@ const loadUserProfile = () => {
   }
 };
 
-const saveUserProfile = (profile: { userId: string; displayName: string; color: string }) => {
+const saveUserProfile = (profile: { userId: string; username: string; authToken: string; displayName: string; color: string }) => {
   if (typeof localStorage === 'undefined') {
     return;
   }
@@ -77,14 +84,37 @@ const profile = loadUserProfile();
 export const useUserStore = create<UserState>((set) => ({
   ...profile,
   remotes: {},
+  setAccount: (account) => set(() => {
+    const next = {
+      userId: account.userId,
+      username: account.username,
+      authToken: account.authToken,
+      displayName: account.displayName,
+      color: account.color,
+    };
+    saveUserProfile(next);
+    return next;
+  }),
+  clearAccount: () => set((state) => {
+    const fallback = createUserProfile();
+    const next = {
+      userId: fallback.userId,
+      username: '',
+      authToken: '',
+      displayName: state.displayName || fallback.displayName,
+      color: state.color || fallback.color,
+    };
+    saveUserProfile(next);
+    return next;
+  }),
   setDisplayName: (displayName) => set((state) => {
     const next = { ...state, displayName: displayName.trim() || state.displayName };
-    saveUserProfile({ userId: next.userId, displayName: next.displayName, color: next.color });
+    saveUserProfile({ userId: next.userId, username: next.username, authToken: next.authToken, displayName: next.displayName, color: next.color });
     return { displayName: next.displayName };
   }),
   setColor: (color) => set((state) => {
     const next = { ...state, color };
-    saveUserProfile({ userId: next.userId, displayName: next.displayName, color: next.color });
+    saveUserProfile({ userId: next.userId, username: next.username, authToken: next.authToken, displayName: next.displayName, color });
     return { color };
   }),
   addPeer: (peer) => set((state) => ({
