@@ -128,7 +128,15 @@ export type RoomPhaseClientMessage = {
   phaseId: string;
 };
 
-export type ClientMessage = JoinMessage | CursorMessage | OpMessage | ShapePreviewMessage | RoomChatClientMessage | RoomEmojiClientMessage | RoomPhaseClientMessage;
+export type RoomPhasesClientMessage = {
+  type: 'room-phases';
+  msgId: string;
+  roomId: string;
+  userId: string;
+  phases: Array<{ id: string; label: string; hint: string; templateId: string }>;
+};
+
+export type ClientMessage = JoinMessage | CursorMessage | OpMessage | ShapePreviewMessage | RoomChatClientMessage | RoomEmojiClientMessage | RoomPhaseClientMessage | RoomPhasesClientMessage;
 
 export type JoinedMessage = {
   type: 'joined';
@@ -204,6 +212,12 @@ export type RoomPhaseBroadcastMessage = {
   phaseId: string;
 };
 
+export type RoomPhasesBroadcastMessage = {
+  type: 'room-phases';
+  userId: string;
+  phases: Array<{ id: string; label: string; hint: string; templateId: string }>;
+};
+
 export type ServerMessage =
   | JoinedMessage
   | PeerJoinedMessage
@@ -215,4 +229,5 @@ export type ServerMessage =
   | RoomChatBroadcastMessage
   | RoomEmojiBroadcastMessage
   | RoomPhaseBroadcastMessage
+  | RoomPhasesBroadcastMessage
   | ErrorMessage;

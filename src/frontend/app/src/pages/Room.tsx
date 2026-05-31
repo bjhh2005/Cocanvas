@@ -916,6 +916,16 @@ export function Room() {
           return;
         }
 
+        if (message.type === 'room-phases') {
+          setPhases(message.phases as MeetingPhase[]);
+          // If active phase was removed by the sender, fall back to first
+          setActivePhaseId((current) => {
+            const exists = message.phases.some((p) => p.id === current);
+            return exists ? current : (message.phases[0]?.id ?? current) as MeetingPhaseId;
+          });
+          return;
+        }
+
         if (message.type === 'error') {
           setEvents((current) => [`error: ${message.message}`, ...current].slice(0, 5));
           if (message.code === 'op_persist_failed') {
@@ -1271,6 +1281,17 @@ export function Room() {
     handleTemplateInsert(activeMeetingPhase.templateId);
   };
 
+  const broadcastPhases = useCallback((nextPhases: MeetingPhase[]) => {
+    if (!roomId) return;
+    wsClient?.sendJson({
+      type: 'room-phases',
+      msgId: `${userId}-${Date.now()}`,
+      roomId,
+      userId,
+      phases: nextPhases,
+    });
+  }, [roomId, userId, wsClient]);
+
   const handleAddPhase = () => {
     const phase: MeetingPhase = {
       id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -1278,29 +1299,35 @@ export function Room() {
       hint: '写下这个阶段希望团队完成的事情。',
       templateId: 'kanban',
     };
-    setPhases((current) => [...current, phase]);
+    setPhases((current) => {
+      const next = [...current, phase];
+      broadcastPhases(next);
+      return next;
+    });
     setActivePhaseId(phase.id);
   };
 
   const handleRemovePhase = (phaseId: MeetingPhaseId) => {
     setPhases((current) => {
-      if (current.length <= 1) {
-        return current;
-      }
-
+      if (current.length <= 1) return current;
       const index = current.findIndex((phase) => phase.id === phaseId);
       const next = current.filter((phase) => phase.id !== phaseId);
       if (activePhaseId === phaseId) {
         setActivePhaseId(next[Math.max(0, index - 1)]?.id ?? next[0].id);
       }
+      broadcastPhases(next);
       return next;
     });
   };
 
   const handleUpdatePhase = (phaseId: MeetingPhaseId, patch: Partial<MeetingPhase>) => {
-    setPhases((current) => current.map((phase) => (
-      phase.id === phaseId ? { ...phase, ...patch, id: phase.id } : phase
-    )));
+    setPhases((current) => {
+      const next = current.map((phase) => (
+        phase.id === phaseId ? { ...phase, ...patch, id: phase.id } : phase
+      ));
+      broadcastPhases(next);
+      return next;
+    });
   };
 
   const handleMeetingBarHeight = useCallback((h: number) => {

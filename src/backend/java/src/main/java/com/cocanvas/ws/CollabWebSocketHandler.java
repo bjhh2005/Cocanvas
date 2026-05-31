@@ -11,6 +11,7 @@ import com.cocanvas.protocol.inbound.OpMessage;
 import com.cocanvas.protocol.inbound.RoomChatMessage;
 import com.cocanvas.protocol.inbound.RoomEmojiMessage;
 import com.cocanvas.protocol.inbound.RoomPhaseMessage;
+import com.cocanvas.protocol.inbound.RoomPhasesMessage;
 import com.cocanvas.protocol.inbound.ShapePreviewMessage;
 import com.cocanvas.protocol.outbound.CursorBroadcastMessage;
 import com.cocanvas.protocol.outbound.ErrorMessage;
@@ -22,6 +23,7 @@ import com.cocanvas.protocol.outbound.PeerLeftMessage;
 import com.cocanvas.protocol.outbound.RoomChatBroadcastMessage;
 import com.cocanvas.protocol.outbound.RoomEmojiBroadcastMessage;
 import com.cocanvas.protocol.outbound.RoomPhaseBroadcastMessage;
+import com.cocanvas.protocol.outbound.RoomPhasesBroadcastMessage;
 import com.cocanvas.protocol.outbound.ShapePreviewBroadcastMessage;
 import com.cocanvas.pubsub.RealtimeBroadcaster;
 import com.cocanvas.service.HistoryService;
@@ -109,6 +111,11 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
 
         if (inbound instanceof RoomPhaseMessage phaseMessage) {
             handleRoomPhase(session, phaseMessage);
+            return;
+        }
+
+        if (inbound instanceof RoomPhasesMessage phasesMessage) {
+            handleRoomPhases(session, phasesMessage);
             return;
         }
 
@@ -264,6 +271,21 @@ public class CollabWebSocketHandler extends TextWebSocketHandler {
         broadcaster.broadcast(
                 roomId,
                 new RoomPhaseBroadcastMessage(userId, message.phaseId()),
+                session
+        );
+    }
+
+    private void handleRoomPhases(WebSocketSession session, RoomPhasesMessage message) throws IOException {
+        Map<String, Object> attributes = session.getAttributes();
+        String roomId = attribute(attributes, RoomSessionRegistry.ROOM_ID);
+        String userId = attribute(attributes, RoomSessionRegistry.USER_ID);
+        if (roomId == null || userId == null) {
+            send(session, new ErrorMessage("not_joined", "Send join before room-phases"));
+            return;
+        }
+        broadcaster.broadcast(
+                roomId,
+                new RoomPhasesBroadcastMessage(userId, message.phases()),
                 session
         );
     }
