@@ -14,6 +14,8 @@ import {
   Lock as LockIcon,
   MousePointer2,
   PlusCircle,
+  Undo2,
+  Redo2,
   Unlink2,
   Scissors,
   Trash2,
@@ -212,6 +214,8 @@ export function Room() {
   const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
   const [historyAnchors, setHistoryAnchors] = useState<HistoryAnchors | null>(null);
   const [historyMode, setHistoryMode] = useState(false);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
   const clipboardRef = useRef<ShapeOperation[]>([]);
   const undoStackRef = useRef<HistoryEntry[]>([]);
   const redoStackRef = useRef<HistoryEntry[]>([]);
@@ -539,6 +543,8 @@ export function Room() {
 
     undoStackRef.current.push(entry);
     redoStackRef.current = [];
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(0);
   }, []);
 
   const runHistoryBatch = useCallback((fn: () => void) => {
@@ -549,6 +555,8 @@ export function Room() {
     if (entry && entry.undo.length > 0 && entry.redo.length > 0 && !historyReplayRef.current) {
       undoStackRef.current.push(entry);
       redoStackRef.current = [];
+      setUndoCount(undoStackRef.current.length);
+      setRedoCount(0);
     }
   }, []);
 
@@ -646,6 +654,8 @@ export function Room() {
 
     sendHistoryOps(entry.undo);
     redoStackRef.current.push(entry);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
     setEvents((current) => [`undo ${entry.undo.length} op(s)`, ...current].slice(0, 5));
   }, [sendHistoryOps]);
 
@@ -658,6 +668,8 @@ export function Room() {
 
     sendHistoryOps(entry.redo);
     undoStackRef.current.push(entry);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
     setEvents((current) => [`redo ${entry.redo.length} op(s)`, ...current].slice(0, 5));
   }, [sendHistoryOps]);
 
@@ -1850,6 +1862,28 @@ export function Room() {
         </div>
         <UserIdentityEditor compact />
         <div className="room-stats">
+          <div className="undo-redo-btns">
+            <button
+              type="button"
+              className="undo-redo-btn"
+              onClick={undoLastAction}
+              disabled={undoCount === 0}
+              title="撤销 (Ctrl+Z)"
+              aria-label="撤销"
+            >
+              <Undo2 size={15} />
+            </button>
+            <button
+              type="button"
+              className="undo-redo-btn"
+              onClick={redoLastAction}
+              disabled={redoCount === 0}
+              title="重做 (Ctrl+Y)"
+              aria-label="重做"
+            >
+              <Redo2 size={15} />
+            </button>
+          </div>
           <span>WS: <strong>{status}</strong></span>
           <span>Peers: <strong>{remoteCount}</strong></span>
           <span>Perm: <strong>{roomPermissionMode}</strong></span>

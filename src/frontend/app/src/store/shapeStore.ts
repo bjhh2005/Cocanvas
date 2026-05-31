@@ -235,7 +235,7 @@ export const useShapeStore = create<ShapeState>((set) => ({
       shapes: toCanvasShapes(nextCrdtShapes),
     };
   }),
-  replaceWithSnapshot: (snapshot) => {
+  replaceWithSnapshot: (snapshot) => set(() => {
     const crdtShapes = Object.fromEntries(
       Object.entries(snapshot).map(([shapeId, attrs]) => {
         const shapeType = (attrs.shapeType as ShapeType | undefined) ?? 'rect';
@@ -274,7 +274,7 @@ export const useShapeStore = create<ShapeState>((set) => ({
       selectedId: null,
       selectedIds: [],
     };
-  },
+  }),
   setSelectedId: (selectedId) => set({ selectedId, selectedIds: selectedId ? [selectedId] : [] }),
   setSelectedIds: (selectedIds) => set({ selectedIds, selectedId: selectedIds[0] ?? null }),
   toggleSelectedId: (shapeId) => set((state) => {

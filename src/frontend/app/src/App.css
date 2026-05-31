@@ -684,6 +684,35 @@
   font-size: 13px;
 }
 
+.undo-redo-btns {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.undo-redo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--social-bg);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+}
+
+.undo-redo-btn:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.undo-redo-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .collab-diagnostics {
   display: flex;
   flex-wrap: wrap;
