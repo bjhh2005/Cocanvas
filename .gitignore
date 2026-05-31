@@ -10,6 +10,12 @@ out/
 .env
 src/backend/.env
 .run-*.log
+# 运行时日志（codex / 各类后台进程日志）
+.codex-runlogs/
+*.log
+# 临时 / 草稿文件
+tmp.py
+*.tmp
 /others
 PROJECT.md
 /.cc-history
