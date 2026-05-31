@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowDownToLine,
   ArrowUpToLine,
-  AudioLines,
   Copy,
   Goal,
   ImageDown,
@@ -15,8 +14,6 @@ import {
   Lock as LockIcon,
   MousePointer2,
   PlusCircle,
-  Mic,
-  MicOff,
   Unlink2,
   Scissors,
   Trash2,
@@ -1878,17 +1875,6 @@ export function Room() {
             </span>
           )}
         </div>
-        {roomVoiceEnabled && (
-          <div className="meeting-strip">
-            <AudioLines size={16} aria-hidden />
-            <span>{micEnabled ? '麦克风已开启' : '会议语音待加入'}</span>
-            <button type="button" onClick={() => void toggleMicrophone()}>
-              {micEnabled ? <MicOff size={15} aria-hidden /> : <Mic size={15} aria-hidden />}
-              <span>{micEnabled ? '静音' : '加入语音'}</span>
-            </button>
-            {micError && <em>{micError}</em>}
-          </div>
-        )}
       </header>
 
       <Toolbar
@@ -1980,6 +1966,10 @@ export function Room() {
           onApplyHistory={handleApplyHistory}
           onExitHistory={handleExitHistory}
           onHeightChange={handleMeetingBarHeight}
+          voiceEnabled={roomVoiceEnabled}
+          micEnabled={micEnabled}
+          micError={micError}
+          onToggleMic={() => void toggleMicrophone()}
           chatMessages={chatMessages}
           onSendMessage={handleSendChatMessage}
           onSendEmoji={handleSendEmoji}

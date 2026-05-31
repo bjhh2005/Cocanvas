@@ -2020,7 +2020,7 @@ kbd {
 }
 
 .meeting-bar--open .meeting-bar__panel {
-  max-height: 320px;
+  max-height: 380px;
 }
 
 /* ── Tabs ── */
@@ -2531,6 +2531,70 @@ kbd {
   background: #93c5fd;
   border-radius: 2px;
   vertical-align: middle;
+}
+
+/* ── Voice control bar (inside MeetingBar panel) ── */
+.meeting-bar__voice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  flex-shrink: 0;
+}
+
+.meeting-bar__voice-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.meeting-bar__voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #145c4a;
+  color: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.meeting-bar__voice-btn.active {
+  background: #b91c1c;
+}
+
+.meeting-bar__voice-btn:hover {
+  filter: brightness(1.1);
+}
+
+.meeting-bar__voice-error {
+  font-size: 11px;
+  color: #b91c1c;
+  font-style: normal;
+}
+
+/* Mic indicator in handle bar */
+.meeting-bar__mic-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #e5e7eb;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.meeting-bar__mic-indicator.active {
+  background: #dcfce7;
+  color: #15803d;
 }
 
 /* ── History mode canvas banner ── */

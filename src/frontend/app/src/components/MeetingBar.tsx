@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, History, Send, Smile } from 'lucide-react';
+import { AudioLines, ChevronDown, ChevronUp, History, Mic, MicOff, Send, Smile } from 'lucide-react';
 import type { MeetingPhase, MeetingPhaseId } from '../whiteboard/productBoard';
 import type { HistoryAnchors } from '../network/api';
 
@@ -46,6 +46,11 @@ interface MeetingBarProps {
   onApplyHistory: (at: number) => void;
   onExitHistory: () => void;
   onHeightChange?: (height: number) => void;
+  // Voice
+  voiceEnabled: boolean;
+  micEnabled: boolean;
+  micError: string | null;
+  onToggleMic: () => void;
   // Synced state
   chatMessages: ChatMessage[];
   onSendMessage: (text: string) => void;
@@ -81,6 +86,10 @@ export function MeetingBar({
   onApplyHistory,
   onExitHistory,
   onHeightChange,
+  voiceEnabled,
+  micEnabled,
+  micError,
+  onToggleMic,
   chatMessages,
   onSendMessage,
   onSendEmoji,
@@ -184,6 +193,11 @@ export function MeetingBar({
             </span>
           </div>
           <div className="meeting-bar__handle-right">
+            {voiceEnabled && (
+              <span className={`meeting-bar__mic-indicator${micEnabled ? ' active' : ''}`} title={micEnabled ? '麦克风开启' : '语音未加入'}>
+                {micEnabled ? <Mic size={14} /> : <AudioLines size={14} />}
+              </span>
+            )}
             {open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
           </div>
         </button>
@@ -425,6 +439,24 @@ export function MeetingBar({
                   </>
                 );
               })()}
+            </div>
+          )}
+          {/* ── Voice control bar (always visible when voice enabled) ── */}
+          {voiceEnabled && (
+            <div className="meeting-bar__voice">
+              <AudioLines size={15} aria-hidden />
+              <span className="meeting-bar__voice-label">
+                {micEnabled ? '麦克风已开启' : '会议语音'}
+              </span>
+              <button
+                type="button"
+                className={`meeting-bar__voice-btn${micEnabled ? ' active' : ''}`}
+                onClick={onToggleMic}
+              >
+                {micEnabled ? <MicOff size={14} /> : <Mic size={14} />}
+                {micEnabled ? '静音' : '加入语音'}
+              </button>
+              {micError && <em className="meeting-bar__voice-error">{micError}</em>}
             </div>
           )}
         </div>
