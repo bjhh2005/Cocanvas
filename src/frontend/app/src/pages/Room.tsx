@@ -2030,15 +2030,15 @@ export function Room() {
         ref={stageRef}
         onMouseMove={handleMouseMove}
         onClick={() => setContextMenu(null)}
+        onContextMenu={(event) => {
+          // CanvasBoard opens the menu on right-mouse-up; just block the native menu here
+          event.preventDefault();
+        }}
         onDragOver={(event) => {
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={handleToolDrop}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setContextMenu({ x: event.clientX, y: event.clientY });
-        }}
       >
         <CanvasBoard
           width={stageSize.width}

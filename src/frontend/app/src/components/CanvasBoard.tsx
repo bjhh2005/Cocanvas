@@ -191,6 +191,9 @@ export function CanvasBoard({
   const dragStateRef = useRef<DragState | null>(null);
   const dragLayerStateRef = useRef<DragLayerState | null>(null);
   const panDraftRef = useRef<PanDraft | null>(null);
+  // Right-click tracking: contextmenu fires on mousedown on some platforms, so we
+  // never open the menu from contextmenu — we open it on mouseup when not moved.
+  const rightClickRef = useRef<{ clientX: number; clientY: number; moved: boolean } | null>(null);
   const connectorLayerRef = useRef<Konva.Layer | null>(null);
   const dragLayerRef = useRef<Konva.Layer | null>(null);
   const shapeNodeRefs = useRef<Map<string, Konva.Node>>(new Map());
@@ -396,6 +399,18 @@ export function CanvasBoard({
   };
 
   const handleStageMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
+    // Right-click on empty canvas → pan (regardless of active tool)
+    if (event.evt.button === 2) {
+      const pointer = stageRef.current?.getPointerPosition();
+      if (pointer) {
+        rightClickRef.current = { clientX: event.evt.clientX, clientY: event.evt.clientY, moved: false };
+        panDraftRef.current = { startPointerX: pointer.x, startPointerY: pointer.y, startViewport: viewport };
+        const container = stageRef.current?.container();
+        if (container) container.style.cursor = 'grabbing';
+      }
+      return;
+    }
+
     if (event.target !== event.target.getStage()) {
       return;
     }
@@ -460,6 +475,15 @@ export function CanvasBoard({
   };
 
   const beginShapeDrag = (shape: CanvasShape, event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    // Right-click on a shape: select it and arm the context menu (opened on mouseup),
+    // do not start a drag. cancelBubble prevents the stage from starting a pan.
+    if ('button' in event.evt && event.evt.button === 2) {
+      event.cancelBubble = true;
+      rightClickRef.current = { clientX: event.evt.clientX, clientY: event.evt.clientY, moved: false };
+      applySelection([shape.id], { source: 'context' });
+      return;
+    }
+
     if (activeTool === 'hand' || activeTool === 'connector' || activeTool === 'pen' || activeTool === 'comment' || activeTool === 'frame') {
       return;
     }
@@ -525,6 +549,7 @@ export function CanvasBoard({
     if (panDraft) {
       const pointer = stageRef.current?.getPointerPosition();
       if (pointer) {
+        if (rightClickRef.current) rightClickRef.current.moved = true;
         onViewportChange({
           ...panDraft.startViewport,
           x: panDraft.startViewport.x + pointer.x - panDraft.startPointerX,
@@ -676,6 +701,19 @@ export function CanvasBoard({
   };
 
   const commitShapeDrag = () => {
+    // Right-button release: open context menu only if the cursor did not move (= a click, not a pan)
+    const rc = rightClickRef.current;
+    if (rc) {
+      rightClickRef.current = null;
+      panDraftRef.current = null;
+      const container = stageRef.current?.container();
+      if (container) container.style.cursor = '';
+      if (!rc.moved) {
+        onOpenContextMenu?.({ x: rc.clientX, y: rc.clientY });
+      }
+      return;
+    }
+
     if (panDraftRef.current) {
       panDraftRef.current = null;
       return;
@@ -1103,8 +1141,10 @@ export function CanvasBoard({
         onMouseUp={commitShapeDrag}
         onMouseLeave={commitShapeDrag}
         onContextMenu={(event) => {
+          // Menu opening is handled on right-mouse-up (commitShapeDrag); never open here
+          // because contextmenu can fire on mousedown before a drag is detected.
           event.evt.preventDefault();
-          onOpenContextMenu?.({ x: event.evt.clientX, y: event.evt.clientY });
+          event.evt.stopPropagation();
         }}
         onTouchMove={updateShapeDrag}
         onTouchEnd={commitShapeDrag}
@@ -1283,9 +1323,9 @@ export function CanvasBoard({
                   applySelection([shape.id], { source: 'resize' });
                 }}
                 onContextMenu={(event) => {
+                  // Selection + menu opening handled on mousedown/mouseup; just block default here
                   event.evt.preventDefault();
-                  applySelection([shape.id], { source: 'context' });
-                  onOpenContextMenu?.({ x: event.evt.clientX, y: event.evt.clientY });
+                  event.evt.stopPropagation();
                 }}
                 onAnchorStart={(anchor, event) => beginConnectorDraft(shape, anchor, event)}
                 showAnchors={
