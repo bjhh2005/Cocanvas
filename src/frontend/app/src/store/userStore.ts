@@ -6,6 +6,14 @@ type RemotePeer = PeerInfo & {
   y: number;
 };
 
+type CursorUpdate = {
+  userId: string;
+  x: number;
+  y: number;
+  displayName?: string;
+  color?: string;
+};
+
 type UserState = {
   userId: string;
   displayName: string;
@@ -17,6 +25,7 @@ type UserState = {
   removePeer: (userId: string) => void;
   setPeers: (peers: PeerInfo[]) => void;
   updateCursor: (userId: string, x: number, y: number, displayName?: string, color?: string) => void;
+  updateCursors: (updates: CursorUpdate[]) => void;
 };
 
 export const userPalette = ['#e85d75', '#1f9a8a', '#f59f00', '#3772ff', '#7c3aed', '#ef7b45'];
@@ -125,5 +134,49 @@ export const useUserStore = create<UserState>((set) => ({
         },
       },
     };
+  }),
+  updateCursors: (updates) => set((state) => {
+    if (updates.length === 0) {
+      return state;
+    }
+
+    let changed = false;
+    const nextRemotes = { ...state.remotes };
+    updates.forEach(({ userId, x, y, displayName, color }) => {
+      const existing = nextRemotes[userId];
+      if (!existing) {
+        nextRemotes[userId] = {
+          userId,
+          displayName: displayName ?? `User ${userId.slice(0, 4)}`,
+          color: color ?? '#3772ff',
+          x,
+          y,
+        };
+        changed = true;
+        return;
+      }
+
+      const nextDisplayName = displayName ?? existing.displayName;
+      const nextColor = color ?? existing.color;
+      if (
+        existing.x === x &&
+        existing.y === y &&
+        existing.displayName === nextDisplayName &&
+        existing.color === nextColor
+      ) {
+        return;
+      }
+
+      nextRemotes[userId] = {
+        ...existing,
+        displayName: nextDisplayName,
+        color: nextColor,
+        x,
+        y,
+      };
+      changed = true;
+    });
+
+    return changed ? { remotes: nextRemotes } : state;
   }),
 }));

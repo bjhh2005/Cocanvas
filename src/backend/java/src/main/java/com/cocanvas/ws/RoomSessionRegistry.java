@@ -56,6 +56,11 @@ public class RoomSessionRegistry {
         return sendQueue.stats();
     }
 
+    public boolean hasSessions(String roomId) {
+        Set<WebSocketSession> sessions = sessionsByRoom.get(roomId);
+        return sessions != null && sessions.stream().anyMatch(WebSocketSession::isOpen);
+    }
+
     private void broadcastInRoom(String roomId, String message, WebSocketSession exceptSession, boolean transientMessage) throws IOException {
         Set<WebSocketSession> sessions = sessionsByRoom.getOrDefault(roomId, Set.of());
         for (WebSocketSession session : sessions) {
