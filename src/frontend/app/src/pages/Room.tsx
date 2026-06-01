@@ -2767,6 +2767,12 @@ export function Room() {
           <button type="button" title="Fit to content" onClick={fitViewport}><AlignCenter size={16} aria-hidden /></button>
           <button type="button" title="Export PNG" onClick={exportPng}><ImageDown size={16} aria-hidden /></button>
         </div>
+        <div className="canvas-status-readout" aria-label="Canvas status">
+          <span>{Math.round(viewport.scale * 100)}%</span>
+          <span>{allShapes.length} objects</span>
+          <span>{selectedShapes.length} selected</span>
+          <span>{canvasBackground}</span>
+        </div>
       </section>
 
       {contextMenu && (

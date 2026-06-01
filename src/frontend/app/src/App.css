@@ -2244,6 +2244,28 @@
   font-weight: 800;
 }
 
+.canvas-status-readout {
+  position: absolute;
+  left: 96px;
+  bottom: calc(var(--meeting-bar-height, 0px) + 18px);
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.canvas-status-readout span {
+  padding: 5px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  color: var(--control-text);
+  background: var(--panel-bg);
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
 .inline-editor {
   position: absolute;
   z-index: 40;
