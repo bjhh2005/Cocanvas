@@ -979,6 +979,23 @@
   font-size: 13px;
 }
 
+.topbar-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--control-text);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.topbar-icon-button:hover {
+  background: var(--control-hover);
+}
+
 .undo-redo-btns {
   display: flex;
   gap: 2px;

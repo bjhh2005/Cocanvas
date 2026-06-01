@@ -13,6 +13,7 @@ import {
   MessageSquarePlus,
   Lock as LockIcon,
   MousePointer2,
+  Palette,
   PlusCircle,
   Undo2,
   Redo2,
@@ -24,6 +25,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '../components/CanvasBoard';
+import { AppearancePanel } from '../components/AppearancePanel';
 import { CursorLayer } from '../components/CursorLayer';
 import { MeetingBar } from '../components/MeetingBar';
 import { ProductPanel } from '../components/ProductPanel';
@@ -497,6 +499,7 @@ export function Room() {
   const [activePhaseId, setActivePhaseId] = useState<MeetingPhaseId>('prepare');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStatsResponse | null>(null);
   const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
@@ -2612,6 +2615,15 @@ export function Room() {
           <span>Perm: <strong>{roomPermissionMode}</strong></span>
           {roomMemberRole && <span>Role: <strong>{roomMemberRole}</strong></span>}
           <span>Tool: <strong>{activeTool}</strong></span>
+          <button
+            type="button"
+            className="topbar-icon-button"
+            title="Appearance"
+            aria-label="Appearance"
+            onClick={() => setAppearanceOpen(true)}
+          >
+            <Palette size={15} aria-hidden />
+          </button>
         </div>
         <div className="collab-diagnostics" title={roomWsUrl || 'No websocket URL yet'}>
           <span>Node <strong>{connectedNode}</strong></span>
@@ -2835,6 +2847,7 @@ export function Room() {
           </section>
         </div>
       )}
+      {appearanceOpen && <AppearancePanel onClose={() => setAppearanceOpen(false)} />}
     </main>
   );
 }
