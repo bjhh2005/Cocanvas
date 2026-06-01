@@ -1,0 +1,181 @@
+{
+  "meta": {
+    "label": "limit-scan-1_8",
+    "runSlug": "20260602-011307",
+    "startedAt": "2026-06-01T17:13:07.723Z",
+    "finishedAt": "2026-06-01T17:13:12.857Z",
+    "durationMs": 5134,
+    "baseUrl": "http://localhost:8088",
+    "wsBase": "ws://localhost:8088",
+    "roomId": "bench-mpvgw0rt-5939e91c",
+    "roomWsUrl": "ws://localhost:8088/ws/backend1/collab",
+    "nodes": [
+      {
+        "nodeId": "backend2",
+        "host": "localhost",
+        "port": 8088,
+        "wsPath": "/ws/backend2/collab",
+        "lastHeartbeat": 1780333983726
+      },
+      {
+        "nodeId": "backend1",
+        "host": "localhost",
+        "port": 8088,
+        "wsPath": "/ws/backend1/collab",
+        "lastHeartbeat": 1780333983745
+      }
+    ],
+    "health": {
+      "status": "ok"
+    }
+  },
+  "config": {
+    "label": "limit-scan-1_8",
+    "routeRequests": 180,
+    "sequentialOps": 220,
+    "burstPeers": 14,
+    "burstMessages": 120,
+    "historyRequests": 14
+  },
+  "routeReads": {
+    "requests": 180,
+    "latency": {
+      "count": 180,
+      "minMs": 3.3092000000001462,
+      "maxMs": 25.339699999999993,
+      "avgMs": 5.316408333333333,
+      "p50Ms": 4.618499999999926,
+      "p95Ms": 9.733400000000017,
+      "p99Ms": 14.76739999999998
+    },
+    "cacheBefore": {
+      "requestCount": 495,
+      "hitCount": 474,
+      "missCount": 21,
+      "hitRate": 0.9575757575757575,
+      "missRate": 0.04242424242424243,
+      "loadCount": 0,
+      "totalLoadMs": 0
+    },
+    "cacheAfter": {
+      "requestCount": 591,
+      "hitCount": 569,
+      "missCount": 22,
+      "hitRate": 0.9627749576988156,
+      "missRate": 0.03722504230118443,
+      "loadCount": 0,
+      "totalLoadMs": 0
+    },
+    "cacheDelta": {
+      "requestCount": 96,
+      "hitCount": 95,
+      "missCount": 1,
+      "loadCount": 0,
+      "totalLoadMs": 0,
+      "hitRate": 0.9627749576988156
+    }
+  },
+  "reliableWs": {
+    "firstAckMs": 1.8339999999998327,
+    "firstFanoutMs": 3.413000000000011,
+    "opCount": 221,
+    "totalMs": 723.5989999999999,
+    "throughputOpsPerSecond": 305.41777973711964,
+    "ackLatency": {
+      "count": 221,
+      "minMs": 1.327099999999973,
+      "maxMs": 33.62310000000002,
+      "avgMs": 3.232847963800905,
+      "p50Ms": 2.350200000000086,
+      "p95Ms": 7.828199999999924,
+      "p99Ms": 15.577199999999948
+    },
+    "lastOp": {
+      "opId": "benchmark-user-a-op-220-4db8e958-933b-4287-bc06-bda9888d8d3b",
+      "shapeId": "benchmark-shape-main",
+      "text": "benchmark-op-220"
+    },
+    "consistency": {
+      "firstCrossNodeDelivered": true,
+      "finalCrossNodeDelivered": true
+    },
+    "queueBefore": {
+      "activeSessions": 0,
+      "totalQueuedMessages": 0,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    },
+    "queueAfter": {
+      "activeSessions": 2,
+      "totalQueuedMessages": 0,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    },
+    "queueDelta": {
+      "activeSessions": 2,
+      "totalQueuedMessages": 0,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    }
+  },
+  "transientBurst": {
+    "peers": 14,
+    "messagesPerPeer": 120,
+    "totalSent": 1680,
+    "totalMs": 128.29359999999997,
+    "throughputMessagesPerSecond": 13094.963427637858,
+    "peakQueuedMessages": 33,
+    "avgQueuedMessages": 7.142857142857143,
+    "queueBefore": {
+      "activeSessions": 7,
+      "totalQueuedMessages": 0,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    },
+    "queueAfter": {
+      "activeSessions": 7,
+      "totalQueuedMessages": 7,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    },
+    "queueDelta": {
+      "activeSessions": 0,
+      "totalQueuedMessages": 7,
+      "transientDrops": 0,
+      "overloadDisconnects": 0
+    },
+    "disconnectedPeers": 0
+  },
+  "historyReads": {
+    "expectedMinOps": 221,
+    "actualOps": 221,
+    "snapshotId": "replay-from-start-bench-mpvgw0rt-5939e91c",
+    "latestOpAt": 1780333989729,
+    "snapshotCount": 0,
+    "lastOpId": "benchmark-user-a-op-220-4db8e958-933b-4287-bc06-bda9888d8d3b",
+    "lastOpText": "benchmark-op-220",
+    "consistency": {
+      "containsExpectedLastOp": true,
+      "containsExpectedLastText": true,
+      "stableRepeatedReads": true
+    },
+    "historyLatency": {
+      "count": 14,
+      "minMs": 14.985400000000482,
+      "maxMs": 56.82219999999961,
+      "avgMs": 29.778599999999965,
+      "p50Ms": 29.506400000000212,
+      "p95Ms": 43.49549999999999,
+      "p99Ms": 43.49549999999999
+    },
+    "anchorLatency": {
+      "count": 14,
+      "minMs": 7.914099999999962,
+      "maxMs": 40.03639999999996,
+      "avgMs": 14.30172142857152,
+      "p50Ms": 12.428100000000086,
+      "p95Ms": 18.960399999999936,
+      "p99Ms": 18.960399999999936
+    }
+  }
+}
