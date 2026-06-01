@@ -15,6 +15,7 @@ import {
   MousePointer2,
   Palette,
   PlusCircle,
+  Activity,
   Undo2,
   Redo2,
   Unlink2,
@@ -27,6 +28,7 @@ import {
 import { CanvasBoard, type SelectionChangeOptions, type ViewportState } from '../components/CanvasBoard';
 import { AppearancePanel } from '../components/AppearancePanel';
 import { CursorLayer } from '../components/CursorLayer';
+import { DiagnosticsDrawer } from '../components/DiagnosticsDrawer';
 import { MeetingBar } from '../components/MeetingBar';
 import { ProductPanel } from '../components/ProductPanel';
 import { Toolbar, type ToolMode } from '../components/Toolbar';
@@ -501,6 +503,7 @@ export function Room() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const canvasBackground = useAppearanceStore((state) => state.canvasBackground);
   const showGridLabels = useAppearanceStore((state) => state.showGridLabels);
   const presentationMode = useAppearanceStore((state) => state.presentationMode);
@@ -2630,6 +2633,15 @@ export function Room() {
           </button>
         </div>
         <div className="collab-diagnostics" title={roomWsUrl || 'No websocket URL yet'}>
+          <button
+            type="button"
+            className="diag-open-button"
+            title="Open diagnostics"
+            aria-label="Open diagnostics"
+            onClick={() => setDiagnosticsOpen(true)}
+          >
+            <Activity size={14} aria-hidden />
+          </button>
           <span>Node <strong>{connectedNode}</strong></span>
           <span>Reconnect <strong>{reconnectAttempts}</strong></span>
           <span>Pending <strong>{pendingOpsCount}</strong></span>
@@ -2860,6 +2872,21 @@ export function Room() {
         </div>
       )}
       {appearanceOpen && <AppearancePanel onClose={() => setAppearanceOpen(false)} />}
+      {diagnosticsOpen && (
+        <DiagnosticsDrawer
+          connectedNode={connectedNode}
+          status={status}
+          wsUrl={roomWsUrl}
+          reconnectAttempts={reconnectAttempts}
+          pendingOpsCount={pendingOpsCount}
+          lastRestoredOps={lastRestoredOps}
+          lastReplayedOps={lastReplayedOps}
+          lastFlushedOps={lastFlushedOps}
+          cacheStats={cacheStats}
+          queueStats={queueStats}
+          onClose={() => setDiagnosticsOpen(false)}
+        />
+      )}
     </main>
   );
 }

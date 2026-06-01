@@ -1072,6 +1072,23 @@
   white-space: nowrap;
 }
 
+.diag-open-button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  color: var(--control-text);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.diag-open-button:hover {
+  background: var(--control-hover);
+}
+
 .collab-diagnostics strong {
   color: var(--ink);
 }
