@@ -939,6 +939,30 @@
   font-size: 14px;
 }
 
+.whiteboard-shell.presentation-mode .whiteboard-topbar {
+  min-height: 96px;
+  padding: 18px 24px 18px 104px;
+}
+
+.whiteboard-shell.presentation-mode .whiteboard-topbar h1 {
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.whiteboard-shell.presentation-mode .room-stats span {
+  padding: 7px 12px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.whiteboard-shell.presentation-mode .collab-diagnostics {
+  max-width: 420px;
+}
+
+.whiteboard-shell.presentation-mode .left-toolbar button {
+  min-height: var(--toolbar-size);
+}
+
 .room-header {
   display: flex;
   justify-content: space-between;
