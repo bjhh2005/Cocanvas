@@ -2441,6 +2441,106 @@ kbd {
   text-align: right;
 }
 
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: start end;
+  padding: calc(var(--board-top, 86px) + 14px) 18px 18px;
+  background: rgba(15, 23, 42, 0.16);
+}
+
+.appearance-panel {
+  width: min(430px, calc(100vw - 36px));
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  padding: 16px;
+  color: var(--control-text);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow);
+}
+
+.appearance-panel header,
+.appearance-panel header > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.appearance-panel header button {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--control-text);
+  background: var(--control-bg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.appearance-section {
+  display: grid;
+  gap: 8px;
+}
+
+.appearance-section > span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.segmented-control {
+  display: flex;
+  gap: 6px;
+}
+
+.segmented-control.wrap {
+  flex-wrap: wrap;
+}
+
+.segmented-control button,
+.appearance-toggle {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--control-text);
+  background: var(--control-bg);
+}
+
+.segmented-control button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented-control button:hover,
+.appearance-panel header button:hover {
+  background: var(--control-hover);
+}
+
+.segmented-control button.active {
+  border-color: var(--accent-border);
+  background: var(--control-active);
+}
+
+.appearance-toggle {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  font-weight: 800;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     width: min(100% - 28px, 880px);
