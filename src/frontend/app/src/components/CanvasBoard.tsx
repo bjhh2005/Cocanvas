@@ -599,6 +599,35 @@ export function CanvasBoard({
     return lines;
   }, [height, viewport.scale, viewport.x, viewport.y, width]);
 
+  const gridDots = useMemo(() => {
+    if (backgroundMode !== 'dots') {
+      return [];
+    }
+
+    const left = -viewport.x / viewport.scale - viewportOverscan;
+    const top = -viewport.y / viewport.scale - viewportOverscan;
+    const right = left + width / viewport.scale + viewportOverscan * 2;
+    const bottom = top + height / viewport.scale + viewportOverscan * 2;
+    const startX = Math.floor(left / gridSize) * gridSize;
+    const endX = Math.ceil(right / gridSize) * gridSize;
+    const startY = Math.floor(top / gridSize) * gridSize;
+    const endY = Math.ceil(bottom / gridSize) * gridSize;
+    const dots: Array<{ key: string; x: number; y: number; major: boolean }> = [];
+
+    for (let x = startX; x <= endX; x += gridSize) {
+      for (let y = startY; y <= endY; y += gridSize) {
+        dots.push({
+          key: `${x}:${y}`,
+          x,
+          y,
+          major: x % (gridSize * 5) === 0 && y % (gridSize * 5) === 0,
+        });
+      }
+    }
+
+    return dots;
+  }, [backgroundMode, height, viewport.scale, viewport.x, viewport.y, width]);
+
   const backgroundFill = backgroundMode === 'blueprint'
     ? '#0f2a3d'
     : backgroundMode === 'paper'
@@ -1473,13 +1502,22 @@ export function CanvasBoard({
             fill={backgroundFill}
             listening={false}
           />
-          {backgroundMode !== 'plain' && gridLines.map((line) => (
+          {backgroundMode !== 'plain' && backgroundMode !== 'dots' && gridLines.map((line) => (
             <Line
               key={line.key}
               points={line.points}
               stroke={line.major ? majorLineStroke : lineStroke}
-              dash={backgroundMode === 'dots' ? [1, gridSize - 1] : undefined}
               strokeWidth={line.major ? 1.2 / viewport.scale : 1 / viewport.scale}
+              listening={false}
+            />
+          ))}
+          {gridDots.map((dot) => (
+            <Circle
+              key={dot.key}
+              x={dot.x}
+              y={dot.y}
+              radius={(dot.major ? 2.2 : 1.35) / viewport.scale}
+              fill={dot.major ? majorLineStroke : lineStroke}
               listening={false}
             />
           ))}

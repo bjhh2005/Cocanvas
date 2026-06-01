@@ -2,18 +2,13 @@ import { create } from 'zustand';
 
 export type ThemeMode = 'system' | 'light' | 'dark' | 'contrast';
 export type CanvasBackgroundMode = 'grid' | 'dots' | 'paper' | 'blueprint' | 'plain';
-export type InterfaceDensity = 'comfortable' | 'compact' | 'presentation';
 
 type AppearanceState = {
   themeMode: ThemeMode;
   canvasBackground: CanvasBackgroundMode;
-  density: InterfaceDensity;
-  presentationMode: boolean;
   showGridLabels: boolean;
   setThemeMode: (themeMode: ThemeMode) => void;
   setCanvasBackground: (canvasBackground: CanvasBackgroundMode) => void;
-  setDensity: (density: InterfaceDensity) => void;
-  setPresentationMode: (presentationMode: boolean) => void;
   setShowGridLabels: (showGridLabels: boolean) => void;
 };
 
@@ -22,8 +17,6 @@ const storageKey = 'cocanvas:appearance';
 const defaultState = {
   themeMode: 'system' as ThemeMode,
   canvasBackground: 'grid' as CanvasBackgroundMode,
-  density: 'comfortable' as InterfaceDensity,
-  presentationMode: false,
   showGridLabels: false,
 };
 
@@ -67,16 +60,6 @@ export const useAppearanceStore = create<AppearanceState>((set) => ({
     writeStoredState(next);
     return { canvasBackground };
   }),
-  setDensity: (density) => set((state) => {
-    const next = { ...state, density };
-    writeStoredState(next);
-    return { density };
-  }),
-  setPresentationMode: (presentationMode) => set((state) => {
-    const next = { ...state, presentationMode };
-    writeStoredState(next);
-    return { presentationMode };
-  }),
   setShowGridLabels: (showGridLabels) => set((state) => {
     const next = { ...state, showGridLabels };
     writeStoredState(next);
@@ -89,8 +72,6 @@ export const appearanceSnapshot = () => {
   return {
     themeMode: state.themeMode,
     canvasBackground: state.canvasBackground,
-    density: state.density,
-    presentationMode: state.presentationMode,
     showGridLabels: state.showGridLabels,
   };
 };

@@ -1,7 +1,6 @@
-import { Monitor, Moon, Palette, Rows3, Sun, TextCursorInput } from 'lucide-react';
+import { Monitor, Moon, Palette, Rows3, Sun } from 'lucide-react';
 import {
   type CanvasBackgroundMode,
-  type InterfaceDensity,
   type ThemeMode,
   useAppearanceStore,
 } from '../store/appearanceStore';
@@ -25,22 +24,12 @@ const backgroundOptions: Array<{ value: CanvasBackgroundMode; label: string }> =
   { value: 'plain', label: 'Plain' },
 ];
 
-const densityOptions: Array<{ value: InterfaceDensity; label: string }> = [
-  { value: 'comfortable', label: 'Comfort' },
-  { value: 'compact', label: 'Compact' },
-  { value: 'presentation', label: 'Present' },
-];
-
 export function AppearancePanel({ onClose }: AppearancePanelProps) {
   const themeMode = useAppearanceStore((state) => state.themeMode);
   const canvasBackground = useAppearanceStore((state) => state.canvasBackground);
-  const density = useAppearanceStore((state) => state.density);
-  const presentationMode = useAppearanceStore((state) => state.presentationMode);
   const showGridLabels = useAppearanceStore((state) => state.showGridLabels);
   const setThemeMode = useAppearanceStore((state) => state.setThemeMode);
   const setCanvasBackground = useAppearanceStore((state) => state.setCanvasBackground);
-  const setDensity = useAppearanceStore((state) => state.setDensity);
-  const setPresentationMode = useAppearanceStore((state) => state.setPresentationMode);
   const setShowGridLabels = useAppearanceStore((state) => state.setShowGridLabels);
 
   return (
@@ -87,32 +76,6 @@ export function AppearancePanel({ onClose }: AppearancePanelProps) {
             ))}
           </div>
         </div>
-
-        <div className="appearance-section">
-          <span>Density</span>
-          <div className="segmented-control">
-            {densityOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={density === option.value ? 'active' : undefined}
-                onClick={() => setDensity(option.value)}
-              >
-                <TextCursorInput size={15} aria-hidden />
-                <small>{option.label}</small>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <label className="appearance-toggle">
-          <input
-            type="checkbox"
-            checked={presentationMode}
-            onChange={(event) => setPresentationMode(event.target.checked)}
-          />
-          <span>Presentation mode</span>
-        </label>
 
         <label className="appearance-toggle">
           <input

@@ -506,7 +506,6 @@ export function Room() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const canvasBackground = useAppearanceStore((state) => state.canvasBackground);
   const showGridLabels = useAppearanceStore((state) => state.showGridLabels);
-  const presentationMode = useAppearanceStore((state) => state.presentationMode);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStatsResponse | null>(null);
   const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
@@ -2594,7 +2593,7 @@ export function Room() {
     : null;
 
   return (
-    <main className={`whiteboard-shell${presentationMode ? ' presentation-mode' : ''}`} ref={shellRef}>
+    <main className="whiteboard-shell" ref={shellRef}>
       <header className="whiteboard-topbar" ref={topbarRef}>
         <div>
           <Link to="/" className="back-link"><ArrowLeft size={15} aria-hidden /> Home</Link>

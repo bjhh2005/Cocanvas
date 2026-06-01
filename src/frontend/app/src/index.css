@@ -27,7 +27,6 @@
   --canvas-blueprint-line: rgba(125, 211, 252, 0.22);
   --toolbar-size: 42px;
   --panel-radius: 8px;
-  --density-scale: 1;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -111,18 +110,6 @@ body[data-theme='contrast'] {
   --canvas-paper-line: rgba(0, 95, 204, 0.22);
   --canvas-blueprint-line: rgba(0, 95, 204, 0.36);
   color-scheme: light;
-}
-
-body[data-density='compact'] {
-  --toolbar-size: 36px;
-  --panel-radius: 6px;
-  --density-scale: 0.92;
-}
-
-body[data-density='presentation'] {
-  --toolbar-size: 48px;
-  --panel-radius: 8px;
-  --density-scale: 1.08;
 }
 
 @media (prefers-color-scheme: dark) {
