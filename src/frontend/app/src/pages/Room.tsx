@@ -2261,6 +2261,14 @@ export function Room() {
 
       const isModifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
+      if (event.key === 'Escape') {
+        setShortcutsOpen(false);
+        setAppearanceOpen(false);
+        setDiagnosticsOpen(false);
+        setContextMenu(null);
+        return;
+      }
+
       if (isModifier && key === 'a') {
         event.preventDefault();
         selectAllShapes();
