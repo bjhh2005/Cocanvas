@@ -2467,7 +2467,6 @@ export function Room() {
               <select
                 value={member.role}
                 onChange={(event) => void handleChangeMemberRole(member, event.target.value as RoomMember['role'])}
-                disabled={member.userId === userId && member.role === 'owner'}
               >
                 <option value="owner">owner</option>
                 <option value="edit">edit</option>

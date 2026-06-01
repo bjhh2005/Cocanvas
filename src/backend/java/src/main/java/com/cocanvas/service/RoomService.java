@@ -336,14 +336,13 @@ public class RoomService {
             return;
         }
 
+        // 允许降级 owner（包括自己），但必须始终保留至少一个 owner，避免房间无人可管理。
+        // 这样可以完成「转移 owner」：先把他人升为 owner，再把自己降级。
         roomMemberRepository.findByRoomIdAndUserId(roomId, targetUserId)
                 .filter(member -> "owner".equals(cleanRole(member.getRole())))
                 .ifPresent(member -> {
-                    if (actor != null && actor.userId().equals(targetUserId)) {
-                        throw new MemberAccessDeniedException("不能降级自己的 owner 权限");
-                    }
                     if (roomMemberRepository.countByRoomIdAndRole(roomId, "owner") <= 1) {
-                        throw new MemberAccessDeniedException("房间至少需要保留一个 owner");
+                        throw new MemberAccessDeniedException("房间至少需要保留一个 owner，请先指定新的 owner");
                     }
                 });
     }
