@@ -2604,6 +2604,93 @@ kbd {
   font-weight: 800;
 }
 
+.diagnostics-overlay {
+  place-items: stretch end;
+}
+
+.diagnostics-drawer {
+  width: min(460px, calc(100vw - 34px));
+  max-height: calc(100svh - var(--board-top, 86px) - 32px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  padding: 16px;
+  color: var(--control-text);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow);
+}
+
+.diagnostics-drawer header,
+.diagnostics-drawer header > div,
+.diagnostics-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diagnostics-drawer header {
+  justify-content: space-between;
+}
+
+.diagnostics-drawer header button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--control-text);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.diagnostics-section {
+  display: grid;
+  gap: 10px;
+}
+
+.diagnostics-section h3 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diagnostics-metric {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.diagnostics-metric span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.diagnostics-metric strong {
+  color: var(--text-h);
+  font-size: 18px;
+}
+
+.diagnostics-section code {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     width: min(100% - 28px, 880px);
