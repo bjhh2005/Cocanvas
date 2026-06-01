@@ -2,6 +2,7 @@ import { Arrow, Circle, Group, Layer, Line, Rect, RegularPolygon, Stage, Text } 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import type { ToolMode } from './Toolbar';
+import type { CanvasBackgroundMode } from '../store/appearanceStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import type { ShapeOperation } from '../types/protocol';
 import { priorityLabels, statusLabels } from '../whiteboard/productBoard';
@@ -33,6 +34,8 @@ type CanvasBoardProps = {
   onSelectionChange?: (shapeIds: string[], options?: SelectionChangeOptions) => string[] | void;
   activeGroupId?: string | null;
   visibleShapeIds?: Set<string> | null;
+  backgroundMode?: CanvasBackgroundMode;
+  showGridLabels?: boolean;
 };
 
 type EditingState = {
@@ -176,6 +179,8 @@ export function CanvasBoard({
   onSelectionChange,
   activeGroupId,
   visibleShapeIds,
+  backgroundMode = 'grid',
+  showGridLabels = false,
 }: CanvasBoardProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
   const shapeMap = useShapeStore((state) => state.shapes);
@@ -581,18 +586,36 @@ export function CanvasBoard({
     const endX = Math.ceil(right / gridSize) * gridSize;
     const startY = Math.floor(top / gridSize) * gridSize;
     const endY = Math.ceil(bottom / gridSize) * gridSize;
-    const lines: Array<{ key: string; points: number[]; major: boolean }> = [];
+    const lines: Array<{ key: string; points: number[]; major: boolean; axis: 'x' | 'y'; value: number }> = [];
 
     for (let x = startX; x <= endX; x += gridSize) {
-      lines.push({ key: `v-${x}`, points: [x, startY, x, endY], major: x % (gridSize * 5) === 0 });
+      lines.push({ key: `v-${x}`, points: [x, startY, x, endY], major: x % (gridSize * 5) === 0, axis: 'x', value: x });
     }
 
     for (let y = startY; y <= endY; y += gridSize) {
-      lines.push({ key: `h-${y}`, points: [startX, y, endX, y], major: y % (gridSize * 5) === 0 });
+      lines.push({ key: `h-${y}`, points: [startX, y, endX, y], major: y % (gridSize * 5) === 0, axis: 'y', value: y });
     }
 
     return lines;
   }, [height, viewport.scale, viewport.x, viewport.y, width]);
+
+  const backgroundFill = backgroundMode === 'blueprint'
+    ? '#0f2a3d'
+    : backgroundMode === 'paper'
+      ? '#fffdf7'
+      : backgroundMode === 'plain'
+        ? '#f8fafc'
+        : '#f8fafc';
+  const lineStroke = backgroundMode === 'blueprint'
+    ? 'rgba(125, 211, 252, 0.24)'
+    : backgroundMode === 'paper'
+      ? 'rgba(125, 151, 190, 0.18)'
+      : 'rgba(20, 92, 74, 0.08)';
+  const majorLineStroke = backgroundMode === 'blueprint'
+    ? 'rgba(125, 211, 252, 0.42)'
+    : backgroundMode === 'paper'
+      ? 'rgba(125, 151, 190, 0.3)'
+      : 'rgba(20, 92, 74, 0.16)';
 
   const createAtPointer = () => {
     const stage = stageRef.current;
@@ -1442,12 +1465,32 @@ export function CanvasBoard({
           scaleY={viewport.scale}
           listening={false}
         >
-          {gridLines.map((line) => (
+          <Rect
+            x={-viewport.x / viewport.scale - viewportOverscan}
+            y={-viewport.y / viewport.scale - viewportOverscan}
+            width={width / viewport.scale + viewportOverscan * 2}
+            height={height / viewport.scale + viewportOverscan * 2}
+            fill={backgroundFill}
+            listening={false}
+          />
+          {backgroundMode !== 'plain' && gridLines.map((line) => (
             <Line
               key={line.key}
               points={line.points}
-              stroke={line.major ? 'rgba(20, 92, 74, 0.16)' : 'rgba(20, 92, 74, 0.08)'}
+              stroke={line.major ? majorLineStroke : lineStroke}
+              dash={backgroundMode === 'dots' ? [1, gridSize - 1] : undefined}
               strokeWidth={line.major ? 1.2 / viewport.scale : 1 / viewport.scale}
+              listening={false}
+            />
+          ))}
+          {showGridLabels && gridLines.filter((line) => line.major).map((line) => (
+            <Text
+              key={`label-${line.key}`}
+              x={line.axis === 'x' ? line.value + 4 : -viewport.x / viewport.scale + 8}
+              y={line.axis === 'y' ? line.value + 4 : -viewport.y / viewport.scale + 8}
+              text={String(line.value)}
+              fontSize={11 / viewport.scale}
+              fill={backgroundMode === 'blueprint' ? '#bae6fd' : '#64748b'}
               listening={false}
             />
           ))}

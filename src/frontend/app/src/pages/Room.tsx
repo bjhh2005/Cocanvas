@@ -50,6 +50,7 @@ import {
 } from '../network/api';
 import { WSClient } from '../network/websocket';
 import { useConnectionStore } from '../store/connectionStore';
+import { useAppearanceStore } from '../store/appearanceStore';
 import { useShapeStore, type CanvasShape } from '../store/shapeStore';
 import { useUserStore } from '../store/userStore';
 import type { ServerMessage, ShapeAttrs, ShapeOperation, ShapeType } from '../types/protocol';
@@ -500,6 +501,8 @@ export function Room() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const canvasBackground = useAppearanceStore((state) => state.canvasBackground);
+  const showGridLabels = useAppearanceStore((state) => state.showGridLabels);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStatsResponse | null>(null);
   const [queueStats, setQueueStats] = useState<QueueStatsResponse | null>(null);
@@ -2716,6 +2719,8 @@ export function Room() {
             sendShapeOp(op);
             setActiveTool('select');
           }}
+          backgroundMode={canvasBackground}
+          showGridLabels={showGridLabels}
         />
         <CursorLayer viewport={viewport} />
         <MeetingBar
