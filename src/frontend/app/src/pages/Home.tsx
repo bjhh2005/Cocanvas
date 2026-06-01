@@ -7,6 +7,7 @@ import {
   KeyRound,
   LoaderCircle,
   Lock,
+  Palette,
   Pencil,
   PlusCircle,
   RefreshCw,
@@ -22,6 +23,7 @@ import {
   type RoomSummary,
 } from '../network/api';
 import { AccountPanel } from '../components/AccountPanel';
+import { AppearancePanel } from '../components/AppearancePanel';
 import { UserIdentityEditor } from '../components/UserIdentityEditor';
 import { useUserStore } from '../store/userStore';
 
@@ -76,6 +78,7 @@ export function Home() {
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   const editingRoom = useMemo(
     () => editingRoomId ? rooms.find((room) => room.roomId === editingRoomId) ?? null : null,
@@ -194,6 +197,9 @@ export function Home() {
           <UserIdentityEditor />
           <AccountPanel onAccountChange={() => void loadRooms()} />
           <div className="refresh-stack">
+            <button type="button" className="ghost-action icon-only" title="外观设置" aria-label="外观设置" onClick={() => setAppearanceOpen(true)}>
+              <Palette size={16} aria-hidden />
+            </button>
             <button type="button" className="ghost-action" onClick={() => void loadRooms()} disabled={loadingRooms}>
               {loadingRooms ? <LoaderCircle size={16} className="spin-icon" aria-hidden /> : <RefreshCw size={16} aria-hidden />}
               <span>{loadingRooms ? '刷新中' : '刷新'}</span>
@@ -364,6 +370,7 @@ export function Home() {
           )}
         </div>
       </section>
+      {appearanceOpen && <AppearancePanel scope="theme" onClose={() => setAppearanceOpen(false)} />}
     </main>
   );
 }

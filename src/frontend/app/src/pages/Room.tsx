@@ -2878,7 +2878,7 @@ export function Room() {
           </section>
         </div>
       )}
-      {appearanceOpen && <AppearancePanel onClose={() => setAppearanceOpen(false)} />}
+      {appearanceOpen && <AppearancePanel scope="canvas" onClose={() => setAppearanceOpen(false)} />}
       {diagnosticsOpen && (
         <DiagnosticsDrawer
           connectedNode={connectedNode}
