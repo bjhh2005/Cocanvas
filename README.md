@@ -134,18 +134,23 @@ docker run --rm `
 
 - 房间创建、查询、更新、归档。
 - 房间密码、访问模式、权限模式字段、短期 join token。
+- 账号登录/注册、房间成员角色、owner 管理与 owner 转移保护。
 - 多人 WebSocket join、peer joined/left、远端光标。
+- 会议阶段、会议聊天、表情、成员变化实时同步。
 - 白板对象创建、拖动、编辑、删除、连接线、画笔、评论、Frame、分组、多选。
+- 撤销/重做、复制粘贴、快捷键浮层、右键菜单、导入导出。
+- 主题模式、画布背景样式、画布状态读数和协作诊断抽屉。
 - HLC/CRDT 属性级合并。
 - Redis Pub/Sub 跨节点广播。
 - cursor / shape-preview transient 低优先级广播。
 - WebSocket 每 session 独立发送队列和慢客户端背压。
 - 后端执行 `view` / `comment` 写入权限校验。
 - 一致性哈希按房间路由到后端节点。
-- op 持久化成功后 ack 和广播。
+- op 先进入内存副本并 ack/广播, MySQL 操作日志批量写后置。
 - 前端 pending op outbox, 支持断线重连后补发。
 - MySQL 操作日志和 versioned snapshot 历史恢复。
 - owner 节点写 snapshot, 避免多节点重复快照。
+- 分布式压测报告脚本, 自动生成 JSON / CSV / Markdown 结果。
 
 ## 文档入口
 
@@ -153,6 +158,6 @@ docker run --rm `
 - [docs/功能清单.md](docs/功能清单.md): 当前功能清单与已知限制。
 - [docs/架构说明.md](docs/架构说明.md): 当前架构与关键数据流。
 - [docs/接口文档.md](docs/接口文档.md): 当前 REST/WebSocket 协议。
+- [docs/分布式基准测试说明.md](docs/分布式基准测试说明.md): 分布式压测、结果文件和一致性校验说明。
 - [docs/progress/](docs/progress): 开发进度、测试结果与后续计划。
-
 
